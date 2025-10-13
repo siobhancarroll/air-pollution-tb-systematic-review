@@ -96,6 +96,20 @@ forest(PM2.5_incidence_shortterm_meta,
        print.pval.Q = FALSE)
 dev.off()
 
+path <- paste0(fp, "/forest-plot-PM2.5-incidence-shortterm-simple.png")
+png(file = path, height = "3.5", width = "7", units = "in", res = 300)
+forest(PM2.5_incidence_shortterm_meta,
+       sortvar = effect_estimate_standardized,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab"),
+       leftlabs = c("Study"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE)
+dev.off()
+
 path <- paste0(fp, "/forest-plot-PM2.5-incidence-longterm.png")
 png(file = path, height = "3.5", width = "11", units = "in", res = 300)
 forest(PM2.5_incidence_longterm_meta,
@@ -104,6 +118,20 @@ forest(PM2.5_incidence_longterm_meta,
        col.square.lines = "black",
        leftcols = c("studlab", "country", "age_group", "Sex", "study_design"),
        leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE)
+dev.off()
+
+path <- paste0(fp, "/forest-plot-PM2.5-incidence-longterm-simple.png")
+png(file = path, height = "3.5", width = "7", units = "in", res = 300)
+forest(PM2.5_incidence_longterm_meta,
+       sortvar = effect_estimate_standardized,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab"),
+       leftlabs = c("Study"),
        overall = TRUE,
        hetstat = TRUE,
        print.tau2 = FALSE,
@@ -569,6 +597,21 @@ forest(HAP_incidence_overall_meta,
        prediction = TRUE)
 dev.off()
 
+path <- paste0(fp, "/forest-plot-HAP-incidence-overall-simple.png")
+png(file = path, height = "10", width = "9", units = "in", res = 300)
+forest(HAP_incidence_overall_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "simplified_n"),
+       leftlabs = c("Study", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       prediction = TRUE)
+dev.off()
+
 HAP_incidence_female <- HAP_incidence %>%
   filter(sex == "Female")
 
@@ -729,4 +772,275 @@ forest(HAP_incidence_minconf_meta,
        predicton = TRUE)
 dev.off()
 
+# Level 1
+HAP_incidence_level1 <- HAP_incidence %>%
+  filter(diagnosis_level == 1) %>%
+  filter(flag == 1 | is.na(flag))
 
+HAP_incidence_level1_meta <- 
+  metagen(data = HAP_incidence_level1,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_level1_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-level1.png")
+png(file = path, height = "3", width = "13", units = "in", res = 300)
+forest(HAP_incidence_level1_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# Level 2
+HAP_incidence_level2 <- HAP_incidence %>%
+  filter(diagnosis_level == 2) %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_level2_meta <- 
+  metagen(data = HAP_incidence_level2,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_level2_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-level2.png")
+png(file = path, height = "5", width = "13", units = "in", res = 300)
+forest(HAP_incidence_level2_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# Level 3
+HAP_incidence_level3 <- HAP_incidence %>%
+  filter(diagnosis_level == 3) %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_level3_meta <- 
+  metagen(data = HAP_incidence_level3,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_level3_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-level3.png")
+png(file = path, height = "5", width = "13", units = "in", res = 300)
+forest(HAP_incidence_level3_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# LMIC
+HAP_incidence_lmic <- HAP_incidence %>%
+  filter(lmic == "yes") %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_lmic_meta <- 
+  metagen(data = HAP_incidence_lmic,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_lmic_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-lmic.png")
+png(file = path, height = "7", width = "13", units = "in", res = 300)
+forest(HAP_incidence_lmic_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# Case-control studies
+HAP_incidence_casecontrol <- HAP_incidence %>%
+  filter(study_design == "Case-control") %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_casecontrol_meta <- 
+  metagen(data = HAP_incidence_casecontrol,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_casecontrol_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-casecontrol.png")
+png(file = path, height = "7", width = "13", units = "in", res = 300)
+forest(HAP_incidence_casecontrol_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# Cross-sectional studies
+HAP_incidence_crosssec <- HAP_incidence %>%
+  filter(study_design == "Cross-sectional") %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_crosssec_meta <- 
+  metagen(data = HAP_incidence_crosssec,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_crosssec_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-crosssec.png")
+png(file = path, height = "5", width = "13", units = "in", res = 300)
+forest(HAP_incidence_crosssec_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# Current use
+HAP_incidence_current <- HAP_incidence %>%
+  filter(current_past_both == "current") %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_current_meta <- 
+  metagen(data = HAP_incidence_current,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_current_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-current.png")
+png(file = path, height = "8", width = "13", units = "in", res = 300)
+forest(HAP_incidence_current_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# Past use
+HAP_incidence_both <- HAP_incidence %>%
+  filter(current_past_both == "both") %>%
+  filter(flag == 1 | is.na(flag))
+
+HAP_incidence_current_meta <- 
+  metagen(data = HAP_incidence_current,
+          TE = log(effect_est),
+          lower = log(lower.ci),
+          upper = log(upper.ci),
+          studlab = study_ID,
+          sm = "RR",
+          common = FALSE,
+          random = TRUE,
+          method.tau = "DL",
+          method.bias = "Egger")
+summary(HAP_incidence_current_meta)
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-current.png")
+png(file = path, height = "8", width = "13", units = "in", res = 300)
+forest(HAP_incidence_current_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
+       leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       predicton = TRUE)
+dev.off()
+
+# FUNNEL PLOTS ################################################################
+# Define fill colors for contour
+col.contour = c("gray75", "gray85", "gray95")
+
+funnel(HAP_incidence_overall_meta, 
+       studlab = TRUE,
+       contour = c(0.9, 0.95, 0.99),
+       col.contour = col.contour)
