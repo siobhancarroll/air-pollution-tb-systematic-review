@@ -12,7 +12,7 @@ pafs <- read_csv("/home/siobhancarroll/Documents/PhD/systematic_review/PAF_data/
 tb_counts <- read_csv("/home/siobhancarroll/Documents/PhD/systematic_review/PAF_data/tb_counts.csv")
 
 # Set output directory for all tables
-output_dir <- "/home/siobhancarroll/Documents/PhD/systematic_review/burden_tables"
+output_dir <- "/home/siobhancarroll/Documents/PhD/systematic_review/final_figures_tables/supplemental/"
 
 # Rename PAF and TB count estimates and UIs to avoid confusion
 pafs <- pafs %>%

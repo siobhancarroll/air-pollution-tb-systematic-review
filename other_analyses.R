@@ -6,6 +6,9 @@ library(tmap)
 library(xtable)
 library(PrettyCols)
 
+# Set output directory for figures
+output_dir <- "/home/siobhancarroll/Documents/PhD/systematic_review/final_figures_tables/"
+
 # Overall map #################################################################
 
 world <- ne_countries(scale = "medium", returnclass = "sf")
@@ -90,7 +93,7 @@ overall_map <- tm_shape(all_studies) +
   tm_crs("ESRI:54030")
 overall_map
 
-tmap_save(overall_map, filename = "overall_map.png", height = 4.5, width = 7.5,
+tmap_save(overall_map, filename = paste0(output_dir, "overall_map.png"), height = 4.5, width = 7.5,
           units = "in")
 
 # HAP map #####################################################################
@@ -145,7 +148,7 @@ hap_map <- tm_shape(hap_studies) +
   tm_crs("ESRI:54030")
 hap_map
 
-tmap_save(hap_map, filename = "hap_map.png", height = 4.5, width = 7.5,
+tmap_save(hap_map, filename = paste0(output_dir, "hap_map.png"), height = 4.5, width = 7.5,
           units = "in")
 
 # AAP map #####################################################################
@@ -200,5 +203,5 @@ aap_map <- tm_shape(aap_studies) +
   tm_crs("ESRI:54030")
 aap_map
 
-tmap_save(aap_map, filename = "aap_map.png", height = 4.5, width = 7.5,
+tmap_save(aap_map, filename = paste0(output_dir, "aap_map.png"), height = 4.5, width = 7.5,
           units = "in")
