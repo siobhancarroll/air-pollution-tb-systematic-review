@@ -1,13 +1,41 @@
-# Air Pollution and Tuberculosis Systematic Review
- Code used for the project related to the manuscript "Air Pollution and Tuberculosis: A Systematic Review, Meta-Analysis, and Burden Estimation Study". 
+# Air Pollution and Tuberculosis: A Systematic Review, Meta-Analysis, and Burden Estimation Study
 
- - meta_analysis.R contains code for all random-effects meta-analyses and associated forest plots.
+This repository contains the code used in the manuscript **"Air Pollution and Tuberculosis: A Systematic Review, Meta-Analysis, and Burden Estimation Study"**.
 
- - burden_calculations_hap.R, burden_calculations_oap.R, and burden_calculations_pm2.5.R contain the code for the calculations of the burden of TB deaths attributable to PM2.5 from household air pollution, PM2.5 from outdoor air pollution, and PM2.5 overall, respectively, as well as code used to generate the uncertainty intervals and the tables.
+## Contents
 
- - descriptive_tables.R contains code used to generate Tables E1 and E2.
+- **meta_analysis.R** — Performs all random-effects meta-analyses and generates corresponding forest plots.
+- **burden_calculations_hap.R**, **burden_calculations_oap.R**, **burden_calculations_pm2.5.R** — Estimate the burden of TB deaths attributable to PM2.5 exposure from:
+  - Household air pollution (HAP)
+  - Outdoor air pollution (OAP)
+  - Overall PM2.5 exposure  
+  These scripts also generate uncertainty intervals and tables.
+- **descriptive_tables.R** — Generates Tables E1 and E2.
+- **other_analyses.R** — Produces the maps presented in the manuscript.
 
- - other_analyses.R contains code used to generate the maps.
+## Related Resources
 
- All data and other information can be found on the project's Open Science Foundation page: https://osf.io/s3tyb/overview?view_only=aaf4f00051ad435783486ab7c59ee51e
- 
+- **GBD modeling code** (MR-BRT, ST-GPR, DisMod-MR) is available via the [Institute for Health Metrics and Evaluation (IHME) GitHub page](https://github.com/ihmeuw).
+- **Data and supplementary materials** are available on the [Open Science Framework (OSF) project page](https://osf.io/s3tyb/overview?view_only=aaf4f00051ad435783486ab7c59ee51e).
+
+## Corresponding Author Information
+
+Siobhan Carroll, PhD Candidate in Epidemiology at McGill University
+
+siobhan.carroll@mail.mcgill.ca
+
+## Requirements
+
+These analyses were developed using **R version 4.5.1**.
+
+**Required packages**
+```r
+tidyverse
+meta
+rnaturalearth
+tmap
+xtable
+PrettyCols
+data.table
+officer
+flextable
