@@ -7,12 +7,20 @@ library(webshot2)
 library(chromote)
 library(officer)
 library(flextable)
+library(here)
 
-pafs <- read_csv("/home/siobhancarroll/Documents/PhD/systematic_review/PAF_data/pafs_to_share.csv")
-tb_counts <- read_csv("/home/siobhancarroll/Documents/PhD/systematic_review/PAF_data/tb_counts.csv")
+# Enforce working directory to the project root
+setwd(here())
+
+pafs <- read_csv(here("pafs_to_share.csv"))
+tb_counts <- read_csv(here("tb_counts.csv"))
 
 # Set output directory for all tables
-output_dir <- "/home/siobhancarroll/Documents/PhD/systematic_review/final_figures_tables/supplemental/"
+if (!dir.exists(tables)) {
+  dir.create(tables, recursive = TRUE)
+}
+
+output_dir <- here("tables")
 
 # Rename PAF and TB count estimates and UIs to avoid confusion
 pafs <- pafs %>%
@@ -56,7 +64,7 @@ burden <- burden %>%
          se_count = (count_upper - count_lower) / (2 * 1.96))
 
 # Load the location mapping file
-region_map <- read_csv("/home/siobhancarroll/Documents/PhD/systematic_review/locmeta_GBD2023.csv") 
+region_map <- read_csv(here("locmeta_GBD2023.csv"))
 region_map <- region_map %>% 
   select(location_id, parent_id, level, location_name) %>%
   rename(name = location_name) %>%

@@ -6,14 +6,18 @@ library(tmap)
 library(xtable)
 library(PrettyCols)
 
-# Set output directory for figures
-output_dir <- "/home/siobhancarroll/Documents/PhD/systematic_review/final_figures_tables/"
+# Set output directory for all tables
+if (!dir.exists(figures)) {
+  dir.create(figures, recursive = TRUE)
+}
+
+output_dir <- here("figures")
 
 # Overall map #################################################################
 
 world <- ne_countries(scale = "medium", returnclass = "sf")
 
-HAP_studies <- read_ods("/home/siobhancarroll/Documents/PhD/systematic_review/final_systematic_review_analysis/HAP_final_dataset.ods")
+HAP_studies <- read_ods(here("HAP_final_dataset.ods"))
 countries_HAP <- HAP_studies %>%
   filter(!duplicated(study_ID)) %>%
   separate_rows(name_long, sep = ", ") %>%
@@ -21,7 +25,7 @@ countries_HAP <- HAP_studies %>%
   group_by(name_long) %>%
   summarize(freq = n())
 
-AAP_studies <- read_ods("/home/siobhancarroll/Documents/PhD/systematic_review/final_systematic_review_analysis/AAP_final_dataset.ods")
+AAP_studies <- read_ods(here("AAP_final_dataset.ods"))
 countries_AAP <- AAP_studies %>%
   filter(!duplicated(study_ID)) %>%
   separate_rows(name_long, sep = ", ") %>%
@@ -54,7 +58,7 @@ all_studies$freq[is.na(all_studies$freq)] <- 0
 map_labels <- all_studies[(all_studies$freq != 0 & !is.na(all_studies$freq)),]
 map_labels_countries <- as.data.frame(map_labels$name_long)
 
-IHME_GBD_2021 <- read.csv("/home/siobhancarroll/Documents/PhD/systematic_review/final_systematic_review_analysis/IHME-GBD_2021_DATA-fbef2080-1.csv",
+IHME_GBD_2021 <- read.csv(here("IHME-GBD_2021_DATA-fbef2080-1.csv"),
                           encoding = "latin1")
 all_studies <- merge(all_studies, IHME_GBD_2021, by = "name_long")
 tuberculosis_data_check <- all_studies %>%

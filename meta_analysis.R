@@ -7,11 +7,12 @@ library(here)
 HAP_data <- read_ods(here("HAP_final_dataset.ods"))
 AAP_data <- read_ods(here("AAP_final_dataset.ods"))
 
-### Set up folder to store plots ##############################################
-main_dir <- "tables-and-figures" # specify main directory
-sub_dir <- paste0("meta-analysis-", Sys.Date()) # set up sub-directory with current date
-fp <- file.path(main_dir, sub_dir) # specify file path to save tables and figures
-dir.create(fp, recursive = TRUE) # create new folder for imputation plots
+# Set output directory for all tables
+if (!dir.exists(figures)) {
+  dir.create(figures, recursive = TRUE)
+}
+
+fp <- here("figures")
 
 ###############################################################################
 ################################# AAP #########################################

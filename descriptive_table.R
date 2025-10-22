@@ -3,13 +3,18 @@ library(tidyverse)
 library(readODS)
 library(officer)
 library(flextable)
+library(here)
 
 # Load data
-HAP_studies <- read_ods("/home/siobhancarroll/Documents/PhD/systematic_review/final_systematic_review_analysis/HAP_final_dataset.ods")
-AAP_studies <- read_ods("/home/siobhancarroll/Documents/PhD/systematic_review/final_systematic_review_analysis/AAP_final_dataset.ods")
+HAP_studies <- read_ods(here("HAP_final_dataset.ods"))
+AAP_studies <- read_ods(here("AAP_final_dataset.ods"))
 
-# Set output directory for table
-output_dir <- "/home/siobhancarroll/Documents/PhD/systematic_review/final_figures_tables/"
+# Set output directory for all tables
+if (!dir.exists(tables)) {
+  dir.create(tables, recursive = TRUE)
+}
+
+output_dir <- here("tables")
 
 # Make data sets that contain the information for the tables
 HAP_collapsed <- HAP_studies %>% 
