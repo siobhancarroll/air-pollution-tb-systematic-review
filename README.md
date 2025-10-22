@@ -30,12 +30,14 @@ These analyses were developed using **R version 4.5.1**.
 
 **Required packages**
 ```r
-tidyverse
-meta
-rnaturalearth
-tmap
-xtable
-PrettyCols
-data.table
-officer
-flextable
+# Install required packages
+install.packages(c("tidyverse", "here", "meta", "readODS", "readxl", "kableExtra", "webshot2", "chromote",
+"rnaturalearth", "tmap", "xtable", "PrettyCols", "data.table", "officer", "flextable"))
+```
+
+## Usage
+**Reproducibility note:**
+All file paths in the code are relative to the project root directory.
+To reproduce the analyses, clone this repository and open the .Rproj file in RStudio.
+Required data files (available via the OSF link above) should be saved in the same directory as the .Rproj file.
+Scripts can be run in any order.
