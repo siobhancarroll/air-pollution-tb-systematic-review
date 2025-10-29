@@ -5,7 +5,12 @@ This repository contains the code used in the manuscript **"Air Pollution and Tu
 ## Contents
 
 - **meta_analysis.R** — Performs all random-effects meta-analyses and generates corresponding forest plots.
-- **burden_calculations_hap.R**, **burden_calculations_oap.R**, **burden_calculations_pm2.5.R** — Estimate the burden of TB deaths attributable to PM2.5 exposure from:
+- **mortality_burden_calculations_hap.R**, **mortality_burden_calculations_oap.R**, **mortality_burden_calculations_pm2.5.R** — Estimate the burden of TB deaths attributable to PM2.5 exposure from:
+  - Household air pollution (HAP)
+  - Outdoor air pollution (OAP)
+  - Overall PM2.5 exposure  
+  These scripts also generate uncertainty intervals and tables.
+- **DALY_burden_calculations_hap.R**, **DALY_burden_calculations_oap.R**, **DALY_burden_calculations_pm2.5.R** — Estimate the burden of disability-adjusted life yearsfrom TB attributable to PM2.5 exposure from:
   - Household air pollution (HAP)
   - Outdoor air pollution (OAP)
   - Overall PM2.5 exposure  
