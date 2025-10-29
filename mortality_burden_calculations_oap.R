@@ -14,8 +14,8 @@ pafs <- read_csv(here("pafs_to_share.csv"))
 tb_counts <- read_csv(here("tb_counts.csv"))
 
 # Set output directory for all tables
-if (!dir.exists(tables)) {
-  dir.create(tables, recursive = TRUE)
+if (!dir.exists(here("tables"))) {
+  dir.create(here("tables"), recursive = TRUE)
 }
 
 output_dir <- here("tables")
@@ -52,7 +52,7 @@ burden_data <- inner_join(
 
 # Final filtering
 burden <- burden_data %>%
-  filter(variable == "paf_hap")
+  filter(variable == "paf_ambient")
 
 # UNCERTAINTY CALCULATIONS ####################################################
 # Estimate the SE for each PAF and TB count estimate from the UIs
@@ -62,7 +62,7 @@ burden <- burden %>%
          se_count = (count_upper - count_lower) / (2 * 1.96))
 
 # Load the location mapping file
-region_map <- read_csv(here("locmeta_GBD2023.csv")) 
+region_map <- read_csv(here("locmeta_GBD2023.csv"))
 region_map <- region_map %>% 
   select(location_id, parent_id, level, location_name) %>%
   rename(name = location_name) %>%
@@ -178,7 +178,7 @@ total_by_year_clean <- total_by_year %>%
 temp_html_file <- tempfile(fileext = ".html")
 total_by_year_clean %>%
   kbl(
-    caption = "Estimated TB Deaths Attributable to Household PM2.5 per Year",
+    caption = "Estimated TB Deaths Attributable to Outdoor PM2.5 per Year",
     row.names = FALSE,        # suppress row names
     align = "c"               # center-align all columns
   ) %>%
@@ -194,7 +194,7 @@ webshot2::webshot(
   vwidth = 500,
   delay = 0.5,
   zoom = 3,
-  file = file.path(output_dir, "hap_total_tb_burden.png")
+  file = file.path(output_dir, "oap_total_tb_burden.png")
 )
 
 # REGIONAL ESTIMATES ##########################################################
@@ -285,7 +285,7 @@ for (yr in unique_years) {
   # 2. Create the kableExtra object and render it to HTML
   table_html_object <- yearly_data %>%
     kbl(
-      caption = paste0("Estimated TB Deaths Attributable to Household PM2.5 by GBD Region (Year: ", yr, ")"),
+      caption = paste0("Estimated TB Deaths Attributable to Outdoor PM2.5 by GBD Region (Year: ", yr, ")"),
       row.names = FALSE,
       align = "c"
     ) %>%
@@ -301,7 +301,7 @@ for (yr in unique_years) {
   save_kable(table_html_object, file = temp_html_file)
   
   # 4. Define the output file path for the PNG
-  file_name <- paste0("hap_regional_burden_tb_", yr, ".png")
+  file_name <- paste0("oap_regional_burden_tb_", yr, ".png")
   output_path <- file.path(output_dir, file_name)
   
   # 5. Save the table as a PNG file by providing the temporary HTML file path
@@ -388,7 +388,7 @@ col_names_header <- c("Year", ordered_categories)
 temp_html_file <- tempfile(fileext = ".html")
 sex_table %>%
   kbl(
-    caption = "Estimated TB Deaths Attributable to Household PM2.5 by Sex",
+    caption = "Estimated TB Deaths Attributable to Outdoor PM2.5 by Sex",
     col.names = col_names_header,
     align = "c"
   ) %>%
@@ -401,7 +401,7 @@ webshot2::webshot(
   vwidth = 800,
   delay = 0.5,
   zoom = 3,
-  file = file.path(output_dir, "hap_sex_tb_burden.png")
+  file = file.path(output_dir, "oap_sex_tb_burden.png")
 )
 
 # ESTIMATES BY AGE ############################################################
@@ -509,7 +509,7 @@ for (yr in unique_years) {
   # ---- Create and save table ----
   table_html_object <- yearly_data %>%
     kbl(
-      caption = paste0("Estimated TB Deaths Attributable to Household PM2.5 by Age Group (Year: ", yr, ")"),
+      caption = paste0("Estimated TB Deaths Attributable to Outdoor PM2.5 by Age Group (Year: ", yr, ")"),
       row.names = FALSE,
       align = "c"
     ) %>%
@@ -522,7 +522,7 @@ for (yr in unique_years) {
   temp_html_file <- tempfile(fileext = ".html")
   save_kable(table_html_object, file = temp_html_file)
   
-  file_name <- paste0("hap_age_group_burden_tb_", yr, ".png")
+  file_name <- paste0("oap_age_group_burden_tb_", yr, ".png")
   output_path <- file.path(output_dir, file_name)
   
   webshot2::webshot(
@@ -534,3 +534,83 @@ for (yr in unique_years) {
   )
 }
 
+# CREATE WORD TABLES FOR PUBLICATION ##########################################
+
+# Create a new Word document
+doc <- read_docx()
+
+# -------------------------------
+# Total TB burden table by year
+# -------------------------------
+doc <- doc %>%
+  body_add_par("Table E1. Total TB deaths attributable to outdoor PM2.5 by year", style = "heading 2") %>%
+  body_add_flextable(
+    flextable(total_by_year_clean) %>%
+      autofit() %>%
+      align(align = "center", part = "all")
+  ) %>%
+  body_add_par("", style = "Normal")
+
+# -------------------------------
+# Regional burden tables
+# -------------------------------
+doc <- doc %>%
+  body_add_par("Table E2. Regional TB deaths attributable to outdoor PM2.5 by year", style = "heading 2")
+
+for (yr in sort(unique(aggregated_burden_clean$Year))) {
+  yearly_data <- aggregated_burden_clean %>% filter(Year == yr) %>% select(-Year)
+  doc <- doc %>%
+    body_add_par(paste0("Year: ", yr), style = "heading 3") %>%
+    body_add_flextable(
+      flextable(yearly_data) %>%
+        autofit() %>%
+        align(align = "center", part = "all")
+    ) %>%
+    body_add_par("", style = "Normal")
+}
+
+# -------------------------------
+# Sex-specific burden table
+# -------------------------------
+doc <- doc %>%
+  body_add_par("Table E3. Sex-specific TB deaths attributable to outdoor PM2.5 by year", style = "heading 2") %>%
+  body_add_flextable(
+    flextable(sex_table) %>%
+      autofit() %>%
+      align(align = "center", part = "all")
+  ) %>%
+  body_add_par("", style = "Normal")
+
+# -------------------------------
+# Age-specific burden tables
+# -------------------------------
+doc <- doc %>%
+  body_add_par("Table E4. Age-specific TB deaths attributable to outdoor PM2.5 by year", style = "heading 2")
+
+for (yr in sort(unique(aggregated_burden_age_df$Year))) {
+  yearly_data <- aggregated_burden_age_df %>% filter(Year == yr) %>% select(-Year)
+  
+  # Append total row
+  correct_total_row <- total_by_year_clean %>%
+    filter(Year == yr) %>%
+    select(Year, Estimate, `Lower 95% UI`, `Upper 95% UI`) %>%
+    mutate(`Age Group` = "Total") %>%
+    select(`Age Group`, Estimate, `Lower 95% UI`, `Upper 95% UI`)
+  
+  yearly_data <- bind_rows(yearly_data, correct_total_row)
+  
+  doc <- doc %>%
+    body_add_par(paste0("Year: ", yr), style = "heading 3") %>%
+    body_add_flextable(
+      flextable(yearly_data) %>%
+        autofit() %>%
+        align(align = "center", part = "all")
+    ) %>%
+    body_add_par("", style = "Normal")
+}
+
+# -------------------------------
+# Save Word document
+# -------------------------------
+output_file <- file.path(output_dir, "oap_mortality_burden_tables.docx")
+print(doc, target = output_file)
