@@ -5,10 +5,11 @@ library(tidyverse)
 library(tmap)
 library(xtable)
 library(PrettyCols)
+library(here)
 
 # Set output directory for all tables
-if (!dir.exists(figures)) {
-  dir.create(figures, recursive = TRUE)
+if (!dir.exists(here("figures"))) {
+  dir.create(here("figures"), recursive = TRUE)
 }
 
 output_dir <- here("figures")

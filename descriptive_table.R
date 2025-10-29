@@ -10,8 +10,8 @@ HAP_studies <- read_ods(here("HAP_final_dataset.ods"))
 AAP_studies <- read_ods(here("AAP_final_dataset.ods"))
 
 # Set output directory for all tables
-if (!dir.exists(tables)) {
-  dir.create(tables, recursive = TRUE)
+if (!dir.exists(here("tables"))) {
+  dir.create(here("tables"), recursive = TRUE)
 }
 
 output_dir <- here("tables")

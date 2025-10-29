@@ -8,8 +8,8 @@ HAP_data <- read_ods(here("HAP_final_dataset.ods"))
 AAP_data <- read_ods(here("AAP_final_dataset.ods"))
 
 # Set output directory for all tables
-if (!dir.exists(figures)) {
-  dir.create(figures, recursive = TRUE)
+if (!dir.exists(here("figures"))) {
+  dir.create(here("figures"), recursive = TRUE)
 }
 
 fp <- here("figures")
