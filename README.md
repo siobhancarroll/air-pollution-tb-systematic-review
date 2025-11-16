@@ -5,16 +5,7 @@ This repository contains the code used in the manuscript **"Air Pollution and Tu
 ## Contents
 
 - **meta_analysis.R** — Performs all random-effects meta-analyses and generates corresponding forest plots.
-- **mortality_burden_calculations_hap.R**, **mortality_burden_calculations_oap.R**, **mortality_burden_calculations_pm2.5.R** — Estimate the burden of TB deaths attributable to PM2.5 exposure from:
-  - Household air pollution (HAP)
-  - Outdoor air pollution (OAP)
-  - Overall PM2.5 exposure  
-  These scripts also generate uncertainty intervals and tables.
-- **DALY_burden_calculations_hap.R**, **DALY_burden_calculations_oap.R**, **DALY_burden_calculations_pm2.5.R** — Estimate the burden of disability-adjusted life yearsfrom TB attributable to PM2.5 exposure from:
-  - Household air pollution (HAP)
-  - Outdoor air pollution (OAP)
-  - Overall PM2.5 exposure  
-  These scripts also generate uncertainty intervals and tables.
+- **incidence_burden_calculations.R**, **DALY_burden_calculations.R**, **mortality_burden_calculations.R** — Estimate the burden of TB cases, DALYs, and deaths attributable to PM2.5 exposure, respectively. These scripts also generate corresponding uncertainty intervals and tables.
 - **descriptive_tables.R** — Generates Tables E1 and E2.
 - **other_analyses.R** — Produces the maps presented in the manuscript.
 
@@ -36,13 +27,13 @@ These analyses were developed using **R version 4.5.1**.
 **Required packages**
 ```r
 # Install required packages
-install.packages(c("tidyverse", "here", "meta", "readODS", "readxl", "kableExtra", "webshot2", "chromote",
+install.packages(c("tidyverse", "here", "meta", "readODS", "readxl",
 "rnaturalearth", "tmap", "xtable", "PrettyCols", "data.table", "officer", "flextable"))
 ```
 
 ## Usage
 **Reproducibility note:**
-All file paths in the code are relative to the project root directory.
+All file paths in the code are set using the "here" package and are relative to the project root directory.
 To reproduce the analyses, clone this repository and open the .Rproj file in RStudio.
 Required data files (available via the OSF link above) should be saved in the same directory as the .Rproj file.
 Scripts can be run in any order.
