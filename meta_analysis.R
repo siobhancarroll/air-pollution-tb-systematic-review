@@ -66,6 +66,7 @@ PM2.5_incidence_shortterm_meta <-
           sm = "RR",
           common = FALSE,
           random = TRUE,
+          prediction = TRUE,
           method.tau = "DL",
           method.bias = "Egger")
 summary(PM2.5_incidence_shortterm_meta)
@@ -79,6 +80,7 @@ PM2.5_incidence_longterm_meta <-
           sm = "RR",
           common = FALSE,
           random = TRUE,
+          prediction = TRUE,
           method.tau = "DL",
           method.bias = "Egger")
 summary(PM2.5_incidence_longterm_meta)
@@ -94,7 +96,8 @@ forest(PM2.5_incidence_shortterm_meta,
             overall = TRUE,
             hetstat = TRUE,
        print.tau2 = FALSE,
-       print.pval.Q = FALSE)
+       print.pval.Q = FALSE,
+       prediction = TRUE)
 dev.off()
 
 path <- paste0(fp, "/forest-plot-PM2.5-incidence-shortterm-simple.png")
@@ -108,7 +111,8 @@ forest(PM2.5_incidence_shortterm_meta,
        overall = TRUE,
        hetstat = TRUE,
        print.tau2 = FALSE,
-       print.pval.Q = FALSE)
+       print.pval.Q = FALSE,
+       prediction = TRUE)
 dev.off()
 
 path <- paste0(fp, "/forest-plot-PM2.5-incidence-longterm.png")
@@ -122,7 +126,8 @@ forest(PM2.5_incidence_longterm_meta,
        overall = TRUE,
        hetstat = TRUE,
        print.tau2 = FALSE,
-       print.pval.Q = FALSE)
+       print.pval.Q = FALSE,
+       prediction = TRUE)
 dev.off()
 
 path <- paste0(fp, "/forest-plot-PM2.5-incidence-longterm-simple.png")
@@ -136,13 +141,9 @@ forest(PM2.5_incidence_longterm_meta,
        overall = TRUE,
        hetstat = TRUE,
        print.tau2 = FALSE,
-       print.pval.Q = FALSE)
+       print.pval.Q = FALSE,
+       prediction = TRUE)
 dev.off()
-
-# Add a grouping variable to each object
-PM2.5_incidence_shortterm_meta$group <- "Short-Term"
-PM2.5_incidence_longterm_meta$group <- "Long-Term"
-
 
 # PM10 ########################################################################
 PM10_incidence <- AAP_data %>%
@@ -570,6 +571,8 @@ HAP_incidence <- HAP_data %>%
 HAP_incidence_overall <- HAP_incidence %>%
   filter(flag == 1 | is.na(flag))
 
+HAP_incidence_overall <- HAP_incidence_overall[-c(2, 3),]
+
 HAP_incidence_overall_meta <- 
   metagen(data = HAP_incidence_overall,
           TE = log(effect_est),
@@ -616,7 +619,7 @@ dev.off()
 HAP_incidence_female <- HAP_incidence %>%
   filter(sex == "Female")
 
-HAP_incidence_female <- HAP_incidence_female[-c(2, 3, 9, 10, 11, 13, 14), ]
+HAP_incidence_female <- HAP_incidence_female[-c(1:4, 9, 10, 11, 13, 14), ]
 
 HAP_incidence_female_meta <- 
   metagen(data = HAP_incidence_female,
@@ -639,6 +642,21 @@ forest(HAP_incidence_female_meta,
        col.square.lines = "black",
        leftcols = c("studlab", "country", "age_group", "sex", "study_design", "simplified_n"),
        leftlabs = c("Study", "Location", "Age Group", "Sex", "Study Design", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       prediction = TRUE)
+dev.off()
+
+path <- paste0(fp, "/forest-plot-HAP-incidence-female-simple.png")
+png(file = path, height = "3", width = "8", units = "in", res = 300)
+forest(HAP_incidence_female_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "simplified_n"),
+       leftlabs = c("Study", "Sample Size"),
        overall = TRUE,
        hetstat = TRUE,
        print.tau2 = FALSE,
@@ -677,9 +695,26 @@ forest(HAP_incidence_children_meta,
        prediction = TRUE)
 dev.off()
 
+path <- paste0(fp, "/forest-plot-HAP-incidence-children-simple.png")
+png(file = path, height = "3.5", width = "8", units = "in", res = 300)
+forest(HAP_incidence_children_meta,
+       sortvar = effect_est,
+       col.square = "turquoise",
+       col.square.lines = "black",
+       leftcols = c("studlab", "simplified_n"),
+       leftlabs = c("Study", "Sample Size"),
+       overall = TRUE,
+       hetstat = TRUE,
+       print.tau2 = FALSE,
+       print.pval.Q = FALSE,
+       prediction = TRUE)
+dev.off()
+
 HAP_incidence_adults <- HAP_incidence %>%
   filter(age_group == "Adults") %>%
   filter(flag == 1 | is.na(flag))
+
+HAP_incidence_adults <- HAP_incidence_adults[-1,]
 
 HAP_incidence_adults_meta <- 
   metagen(data = HAP_incidence_adults,
@@ -713,6 +748,8 @@ HAP_incidence_allages <- HAP_incidence %>%
   filter(age_group == "All") %>%
   filter(flag == 1 | is.na(flag))
 
+HAP_incidence_allages <- HAP_incidence_allages[-2,]
+
 HAP_incidence_allages_meta <- 
   metagen(data = HAP_incidence_allages,
           TE = log(effect_est),
@@ -744,6 +781,8 @@ dev.off()
 HAP_incidence_minconf <- HAP_incidence %>%
   filter(min_confounder_adjustment == "Yes") %>%
   filter(flag == 1 | is.na(flag))
+
+HAP_incidence_minconf <- HAP_incidence_minconf[-1,]
 
 HAP_incidence_minconf_meta <- 
   metagen(data = HAP_incidence_minconf,
@@ -844,6 +883,8 @@ HAP_incidence_level3 <- HAP_incidence %>%
   filter(diagnosis_level == 3) %>%
   filter(flag == 1 | is.na(flag))
 
+HAP_incidence_level3 <- HAP_incidence_level3[-c(2, 3),]
+
 HAP_incidence_level3_meta <- 
   metagen(data = HAP_incidence_level3,
           TE = log(effect_est),
@@ -877,6 +918,8 @@ HAP_incidence_lmic <- HAP_incidence %>%
   filter(lmic == "yes") %>%
   filter(flag == 1 | is.na(flag))
 
+HAP_incidence_lmic <- HAP_incidence_lmic[-c(1, 2),]
+
 HAP_incidence_lmic_meta <- 
   metagen(data = HAP_incidence_lmic,
           TE = log(effect_est),
@@ -909,6 +952,8 @@ dev.off()
 HAP_incidence_casecontrol <- HAP_incidence %>%
   filter(study_design == "Case-control") %>%
   filter(flag == 1 | is.na(flag))
+
+HAP_incidence_casecontrol <- HAP_incidence_casecontrol[-c(2, 3),]
 
 HAP_incidence_casecontrol_meta <- 
   metagen(data = HAP_incidence_casecontrol,
@@ -975,6 +1020,8 @@ dev.off()
 HAP_incidence_current <- HAP_incidence %>%
   filter(current_past_both == "current") %>%
   filter(flag == 1 | is.na(flag))
+
+HAP_incidence_current <- HAP_incidence_current[-c(1, 2),]
 
 HAP_incidence_current_meta <- 
   metagen(data = HAP_incidence_current,
