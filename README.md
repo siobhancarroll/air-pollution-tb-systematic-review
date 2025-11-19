@@ -1,6 +1,6 @@
-# Air Pollution and Tuberculosis: A Systematic Review, Meta-Analysis, and Burden Estimation Study
+# Global Tuberculosis Burden Attributable to Household and Outdoor Air Pollution
 
-This repository contains the code used in the manuscript **"Air Pollution and Tuberculosis: A Systematic Review, Meta-Analysis, and Burden Estimation Study"**.
+This repository contains the code used in the manuscript **"Global Tuberculosis Burden Attributable to Household and Outdoor Air Pollution"**.
 
 ## Contents
 
