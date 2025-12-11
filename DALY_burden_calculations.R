@@ -16,7 +16,6 @@ tb_counts <- read_csv(here("tb_morbidity.csv"))
 if (!dir.exists(here("tables"))) {
   dir.create(here("tables"), recursive = TRUE)
 }
-
 output_dir <- here("tables")
 doc <- read_docx()
 
@@ -25,7 +24,7 @@ pafs <- pafs %>%
   rename(paf_estimate = mean,
          paf_lower = lower,
          paf_upper = upper) %>%
-  # Filter TB counts to the incidence figures
+  # Filter PAFs to the DALY figures
   filter(type == "yld")
 
 tb_counts <- tb_counts %>%
@@ -52,7 +51,7 @@ burden <- inner_join(
 )
 
 # Load the location mapping file
-region_map <- read_csv(here("locmeta_GBD2023.csv"))
+region_map <- read_csv("locmeta_GBD2023.csv")
 
 region_map <- region_map %>% 
   select(location_id, parent_id, level, location_name) %>%
@@ -101,122 +100,134 @@ level2_map <-
                          level2_id, 
                          level2_name)]
 
-# TOTAL BY YEAR ###############################################################
-calculate_burden_summary <- function(data, paf_variable, n_draws, years) {
+# Define burden_prep globally for reuse with SEs and map ---
+burden_prep <- burden %>%
+  # Calculate SEs on the combined/coarse data
+  mutate(se_paf = (paf_upper - paf_lower) / (2 * 1.96),
+         se_count = (count_upper - count_lower) / (2 * 1.96)) %>%
+  # Join with the location map
+  left_join(level2_map, 
+            by = "location_id")
+# --------------------------------------------------------------------
+
+# GLOBAL FUNCTION
+calculate_grouped_summary_tidy <- function(data, paf_variable, n_draws, years, grouping_col = NULL, filter_col = NULL, filter_na_group = TRUE) {
   
-  # 1. Filter the burden data for the specific PAF variable
   burden_filtered <- data %>%
     filter(variable == paf_variable)
   
-  # 2. Estimate the SE for each PAF and TB count estimate from the UIs
-  burden_filtered <- burden_filtered %>%
-    mutate(se_paf = (paf_upper - paf_lower) / (2 * 1.96),
-           se_count = (count_upper - count_lower) / (2 * 1.96))
+  if (!is.null(filter_col) && filter_na_group) {
+    burden_filtered <- burden_filtered %>% filter(!is.na(.data[[filter_col]]))
+  }
   
-  # 3. Create a list to store summarized burden results
-  total_burden_by_year <- list()
+  final_results <- list()
+  group_symbols <- syms(grouping_col)
   
-  # 4. Loop through years to generate draws, calculate burden, and summarize
   for (yr in years) {
-    set.seed(123) # Set seed for reproducibility
+    set.seed(123)
     burden_year <- burden_filtered %>% filter(year_id == yr)
     n_strata <- nrow(burden_year)
     
-    # Generate Monte Carlo draws for counts and PAFs for the year
-    count_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-      nrow = n_draws, ncol = n_strata
-    )
-    count_draws[count_draws < 0] <- 0
+    if (n_strata == 0) next
     
-    paf_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$paf_estimate, sd = burden_year$se_paf),
-      nrow = n_draws, ncol = n_strata
-    )
-    paf_draws[paf_draws < 0] <- 0
-    paf_draws[paf_draws > 1] <- 1
+    # Tidy Draw Generation
+    draw_idx <- rep(1:n_draws, each = n_strata)
+    strata_idx <- rep(1:n_strata, times = n_draws)
     
-    # Compute burden draws and sum them
-    burden_draws <- count_draws * paf_draws
-    total_draws <- rowSums(burden_draws) # Sum across all strata for each draw
+    # Create base tibble with grouping column(s) and draw index
+    tidy_draws <- tibble(draw_id = draw_idx)
+    if (!is.null(grouping_col)) {
+      for (col in grouping_col) {
+        tidy_draws <- tidy_draws %>% mutate(!!sym(col) := burden_year[[col]][strata_idx])
+      }
+    }
     
-    # Store the summary for the year
-    total_burden_by_year[[as.character(yr)]] <- data.frame(
-      year = as.character(yr),
-      paf_variable = paf_variable, # Store the variable name
-      burden_estimate = mean(total_draws),
-      burden_lower = quantile(total_draws, probs = 0.025),
-      burden_upper = quantile(total_draws, probs = 0.975)
-    )
+    tidy_draws <- tidy_draws %>%
+      mutate(
+        # Generate random draws for both counts and PAFs
+        count_draw = rnorm(n_draws * n_strata, 
+                           mean = burden_year$count_estimate[strata_idx], 
+                           sd = burden_year$se_count[strata_idx]),
+        paf_draw = rnorm(n_draws * n_strata, 
+                         mean = burden_year$paf_estimate[strata_idx], 
+                         sd = burden_year$se_paf[strata_idx])
+      ) %>%
+      # Enforce bounds
+      mutate(
+        count_draw = pmax(0, count_draw),
+        paf_draw = pmax(0, pmin(1, paf_draw))
+      ) %>%
+      # Calculate burden for each draw
+      mutate(burden_draw = count_draw * paf_draw)
     
-    # Clear large matrices to free memory
-    rm(count_draws, paf_draws, burden_draws, total_draws, burden_year)
-    gc() 
+    # Tidy Aggregation (Sum across strata for each draw and group)
+    grouped_draw_sums <- tidy_draws %>%
+      group_by(!!!group_symbols, draw_id) %>%
+      summarise(
+        sum_count = sum(count_draw, na.rm = TRUE),
+        sum_burden = sum(burden_draw, na.rm = TRUE),
+        .groups = "drop_last"
+      )
+    
+    # Summarize the draws to get the final mean and 95% UI for both metrics
+    summary_results <- grouped_draw_sums %>%
+      reframe(
+        year = yr,
+        paf_variable = paf_variable,
+        
+        # Count Summary
+        count_estimate = mean(sum_count),
+        count_lower = quantile(sum_count, probs = 0.025),
+        count_upper = quantile(sum_count, probs = 0.975),
+        
+        # Burden Summary
+        burden_estimate = mean(sum_burden),
+        burden_lower = quantile(sum_burden, probs = 0.025),
+        burden_upper = quantile(sum_burden, probs = 0.975),
+      )
+    
+    final_results[[as.character(yr)]] <- summary_results
+    
+    rm(tidy_draws, grouped_draw_sums)
+    gc()
   }
   
-  return(bind_rows(total_burden_by_year))
+  return(bind_rows(final_results))
 }
 
+# --- GLOBAL PARAMETERS ---
 paf_variables_to_run <- c("paf_pm", "paf_hap", "paf_ambient")
 years <- c(seq(1990, 2020, by = 5), 2022)
+num_draws <- 1000
 
-# Run the calculation for each paf variable and store the results in a list
+# -----------------------------------------------------------------------------
+# 1. TOTAL BY YEAR (No Grouping Column)
+# -----------------------------------------------------------------------------
+
+doc <- doc %>% body_add_par("TB DALY Burden and Total DALYs by Year (Global)", style = "heading 1")
+
+# Calculate burden for all three PAF variables
 all_burden_summaries_list <- lapply(paf_variables_to_run, function(v) {
-  burden_prep <- burden %>%
-    mutate(se_paf = (paf_upper - paf_lower) / (2 * 1.96),
-           se_count = (count_upper - count_lower) / (2 * 1.96)) %>%
-    left_join(level2_map, 
-              by = "location_id")
-  
-  calculate_burden_summary(
+  calculate_grouped_summary_tidy(
     data = burden_prep,
     paf_variable = v,
-    n_draws = 1000,
-    years = years
+    n_draws = num_draws,
+    years = years,
+    grouping_col = NULL, 
+    filter_col = NULL,
+    filter_na_group = FALSE 
   )
 })
-
 all_burden_summaries <- bind_rows(all_burden_summaries_list)
 
-# Get the total mortality count for each year
-count_draw_matrices_by_year_all <- list()
-n_draws = 1000
-
-burden_for_count <- burden %>% filter(variable == "paf_pm")
-
-for (yr in years) {
-  set.seed(123)
-  burden_year <- burden_for_count %>% filter(year_id == yr)
-  n_strata <- nrow(burden_year)
-  
-  burden_year <- burden_year %>%
-    mutate(se_count = (count_upper - count_lower) / (2 * 1.96))
-  
-  count_draws <- matrix(
-    rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-    nrow = n_draws, ncol = n_strata
-  )
-  count_draws[count_draws < 0] <- 0
-  
-  count_draw_matrices_by_year_all[[as.character(yr)]] <- count_draws
-}
-
-total_count_by_year <- lapply(names(count_draw_matrices_by_year_all), function(yr) {
-  draws <- count_draw_matrices_by_year_all[[yr]]
-  
-  # Sum across all strata for each draw
-  total_draws <- rowSums(draws)
-  
-  # Summarize
-  data.frame(
-    year = as.character(yr),
-    count_estimate = mean(total_draws),
-    count_lower = quantile(total_draws, probs = 0.025),
-    count_upper = quantile (total_draws, probs = 0.975)
-  )
-}) %>% bind_rows()
+# Extract total counts from the paf_pm run
+total_count_by_year <- all_burden_summaries %>%
+  filter(paf_variable == "paf_pm") %>%
+  select(year, count_estimate, count_lower, count_upper) %>%
+  mutate(paf_variable = "count_total") # Dummy variable name for joining
 
 burden_long <- all_burden_summaries %>%
+  filter(paf_variable != "count_total") %>%
   mutate(year = as.character(year)) %>%
   mutate(
     Variable = case_when(
@@ -253,11 +264,7 @@ final_long_table <- bind_rows(burden_long, count_long) %>%
       ")"
     )
   ) %>%
-  select(
-    Year,
-    Variable,
-    'Estimate (95% CI)'
-  )
+  select(Year, Variable, 'Estimate (95% CI)')
 
 variable_order <- c(
   "Total DALYs",
@@ -265,244 +272,95 @@ variable_order <- c(
   "Household PM2.5-Attributable DALYs",
   "Outdoor PM2.5-Attributable DALYs"
 )
-
 final_long_table$Variable <- factor(final_long_table$Variable, levels = variable_order)
 final_long_table <- arrange(final_long_table, Year, Variable)
 
+# doc output for Total By Year 
 doc <- doc %>%
-  body_add_par("Table E1. Total TB DALYs attributable to PM2.5 and Total DALYs by year", style = "heading 2") %>%
+  body_add_par("Table 1. Global TB DALYs attributable to PM2.5 and Total DALYs by year", style = "heading 2") %>%
   body_add_flextable(
     flextable(final_long_table) %>%
       merge_v(j = 1) %>%
       valign(j = 1, valign = "top", part = "body") %>%
-      border_remove() %>%
-      
-      # Add thick border to top/bottom of the whole table
-      hline_top(part = "all", border = fp_border(color = "black", width = 1.5)) %>%
-      hline_bottom(part = "all", border = fp_border(color = "black", width = 1.5)) %>%
-      
-      hline(i = ~ Variable == "Outdoor PM2.5-Attributable DALYs", 
-            part = "body") %>%
-      
-      # Optional: Clean up vertical borders between merged cells
-      vline(j = 1, border = fp_border(width = 0), part = "body") %>%
-      
       autofit() %>%
       align(align = "left", part = "all")
   ) %>%
   body_add_par("", style = "Normal")
 
-# ESTIMATES BY REGION #########################################################
-n_draws <- 1000
-years <- c(seq(1990, 2020, by = 5), 2022)
+# -----------------------------------------------------------------------------
+# 2. ESTIMATES BY REGION 
+# -----------------------------------------------------------------------------
 
-burden_prep <- burden %>%
-  # Estimate the SE for each PAF and TB count estimate from the UIs
-  mutate(se_paf = (paf_upper - paf_lower) / (2 * 1.96),
-         se_count = (count_upper - count_lower) / (2 * 1.96)) %>%
-  # Merge the map into the burden data
-  left_join(level2_map,
-            by = "location_id")
-
-calculate_burden_summary_with_region <- function(data, paf_variable, n_draws, years) {
-  
-  burden_filtered <- data %>%
-    filter(variable == paf_variable)
-  
-  global_burden_by_year <- list()
-  regional_burden_by_year <- list()
-  
-  for (yr in years) {
-    set.seed(123)
-    burden_year <- burden_filtered %>% filter(year_id == yr)
-    n_strata <- nrow(burden_year)
-    
-    count_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-      nrow = n_draws, ncol = n_strata
-    )
-    count_draws[count_draws < 0] <- 0
-    
-    paf_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$paf_estimate, sd = burden_year$se_paf),
-      nrow = n_draws, ncol = n_strata
-    )
-    paf_draws[paf_draws < 0] <- 0
-    paf_draws[paf_draws > 1] <- 1
-    
-    burden_draws <- count_draws * paf_draws
-    
-    # --- REGIONAL AGGREGATION ---
-    region_map_vector <- burden_year$level2_id
-    
-    draws_dt <- as.data.table(t(burden_draws))
-    draws_dt[, level2_id := region_map_vector]
-    
-    agg_draws_dt <- draws_dt[, lapply(.SD, sum), by = level2_id, .SDcols = paste0("V", 1:n_draws)]
-    
-    region_summary <- agg_draws_dt[, c("estimate", "lower", "upper") := list(
-      rowMeans(.SD),
-      apply(.SD, 1, quantile, probs = 0.025),
-      apply(.SD, 1, quantile, probs = 0.975)
-    ), .SDcols = paste0("V", 1:n_draws)] %>%
-      select(level2_id, estimate, lower, upper) %>%
-      mutate(year = yr, paf_variable = paf_variable) %>%
-      # Merge back the region name
-      left_join(distinct(burden_year %>% select(level2_id, level2_name)),
-                by = "level2_id")
-    
-    regional_burden_by_year[[as.character(yr)]] <- region_summary
-    
-    # --- GLOBAL AGGREGATION ---
-    total_draws <- rowSums(burden_draws)
-    
-    global_burden_by_year[[as.character(yr)]] <- data.frame(
-      year = as.character(yr),
-      paf_variable = paf_variable,
-      burden_estimate = mean(total_draws),
-      burden_lower = quantile(total_draws, probs = 0.025),
-      burden_upper = quantile(total_draws, probs = 0.975)
-    )
-    
-    # Memory clean up
-    rm(count_draws, paf_draws, burden_draws, total_draws, burden_year, draws_dt, agg_draws_dt)
-    gc()
-  }
-  
-  return(list(
-    global_summary = bind_rows(global_burden_by_year),
-    regional_summary = bind_rows(regional_burden_by_year)
-  ))
+calculate_combined_regional_summary_tidy <- function(data, paf_variable, n_draws, years) {
+  return(calculate_grouped_summary_tidy(
+    data = data,
+    paf_variable = paf_variable,
+    n_draws = n_draws,
+    years = years,
+    grouping_col = c("level2_id", "level2_name"),
+    filter_col = "level2_id",
+    filter_na_group = TRUE
+  ) %>% rename(level2_name = `level2_name`)) 
 }
 
-calculate_regional_count_summary <- function(data, n_draws, years) {
-  burden_for_count <- data %>%
-    filter(variable == "paf_pm")
-  
-  regional_count_by_year <- list()
-  
-  for (yr in years) {
-    set.seed(123)
-    burden_year <- burden_for_count %>% filter(year_id == yr)
-    n_strata <- nrow(burden_year)
-    
-    count_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-      nrow = n_draws, ncol = n_strata
-    )
-    count_draws[count_draws < 0] <- 0
-    
-    # --- REGIONAL AGGREGATION ---
-    region_map_vector <- burden_year$level2_id
-    
-    draws_dt <- as.data.table(t(count_draws))
-    draws_dt[, level2_id := region_map_vector]
-    
-    agg_draws_dt <- draws_dt[, lapply(.SD, sum), by = level2_id, .SDcols = paste0("V", 1:n_draws)]
-    
-    region_summary <- agg_draws_dt[, c("count_estimate", "count_lower", "count_upper") := list(
-      rowMeans(.SD),
-      apply(.SD, 1, quantile, probs = 0.025),
-      apply(.SD, 1, quantile, probs = 0.975)
-    ), .SDcols = paste0("V", 1:n_draws)] %>%
-      select(level2_id, count_estimate, count_lower, count_upper) %>%
-      mutate(year = yr) %>%
-      left_join(distinct(burden_year %>% select(level2_id, level2_name)),
-                by = "level2_id")
-    
-    regional_count_by_year[[as.character(yr)]] <- region_summary
-    
-    # Memory Clean-up
-    rm(count_draws, burden_year, draws_dt, agg_draws_dt)
-    gc()
-  }
-  
-  return(bind_rows(regional_count_by_year))
-}
+years_to_analyze <- c(1990, 1995, 2000, 2005, 2010, 2015, 2020, 2022) 
+paf_variable_name <- "paf_pm"
 
-paf_variables_to_run <- c("paf_pm") # Only PM
-
-pm_results_list <- lapply(paf_variables_to_run, function(v) {
-  calculate_burden_summary_with_region(
-    data = burden_prep, 
-    paf_variable = v,
-    n_draws = 1000,
-    years = years
-  )
-})
-
-pm_regional_summary <- bind_rows(lapply(pm_results_list, `[[`, "regional_summary"))
-
-regional_count_summary_df <- calculate_regional_count_summary(
-  data = burden_prep, 
-  n_draws = 1000,
-  years = years
+regional_totals_wide <- calculate_combined_regional_summary_tidy(
+  data = burden_prep,
+  paf_variable = paf_variable_name,
+  n_draws = num_draws,
+  years = years_to_analyze
 )
 
-burden_formatted_regional <- pm_regional_summary %>%
-  mutate(year = as.character(year)) %>%
-  mutate(estimate = round(estimate),
-         lower = round(lower),
-         upper = round(upper)) %>%
+# Prepare the Count Table
+count_formatted_regional <- regional_totals_wide %>%
   mutate(
-    'PM2.5-Attributable DALYs (95% UI)' = paste0(
-      format(estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(lower, big.mark = ",", trim = TRUE),
-      ", ",
-      format(upper, big.mark = ",", trim = TRUE),
-      ")"
-    )
+    count_estimate = round(count_estimate),
+    count_lower = round(count_lower),
+    count_upper = round(count_upper)
   ) %>%
-  select(
-    Year = year,
-    Region = level2_name,
-    'PM2.5-Attributable DALYs (95% UI)',
-    Attributable_Estimate = estimate
-  )
-
-# Prepare Count Table
-count_formatted_regional <- regional_count_summary_df %>%
-  mutate(year = as.character(year)) %>%
-  mutate(count_estimate = round(count_estimate),
-         count_lower = round(count_lower),
-         count_upper = round(count_upper)) %>%
   mutate(
     'Total DALYs (95% UI)' = paste0(
       format(count_estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(count_lower, big.mark = ",", trim = TRUE),
-      ", ",
-      format(count_upper, big.mark = ",", trim = TRUE),
-      ")"
+      " (", format(count_lower, big.mark = ",", trim = TRUE), ", ",
+      format(count_upper, big.mark = ",", trim = TRUE), ")"
     )
   ) %>%
-  select(
-    Year = year,
-    Region = level2_name,
-    'Total DALYs (95% UI)'
-  )
+  select(Region = level2_name, Year = year, 'Total DALYs (95% UI)')
 
-final_table_with_mortality <- burden_formatted_regional %>%
-  left_join(
-    count_formatted_regional,
-    by = c("Year", "Region")
+
+# Prepare the Burden Table
+burden_formatted_regional <- regional_totals_wide %>%
+  mutate(Attributable_Estimate_for_Sort = burden_estimate) %>% # Unrounded estimate for sorting
+  mutate(
+    burden_estimate = round(burden_estimate),
+    burden_lower = round(burden_lower),
+    burden_upper = round(burden_upper)
   ) %>%
-  arrange(Year, desc(Attributable_Estimate)) %>%
-  select(
-    Region,
-    Year,
-    'PM2.5-Attributable DALYs (95% UI)',
-    'Total DALYs (95% UI)'
-  ) 
+  mutate(
+    'PM2.5-Attributable DALYs (95% UI)' = paste0(
+      format(burden_estimate, big.mark = ",", trim = TRUE),
+      " (", format(burden_lower, big.mark = ",", trim = TRUE), ", ",
+      format(burden_upper, big.mark = ",", trim = TRUE), ")"
+    )
+  ) %>%
+  select(Region = level2_name, Year = year, 
+         'PM2.5-Attributable DALYs (95% UI)', Attributable_Estimate_for_Sort)
 
-# Get the list of unique years
-years_to_table <- unique(final_table_with_mortality$Year)
+
+# Join, arrange, and finalize the table
+final_table_with_incidence <- burden_formatted_regional %>%
+  left_join(count_formatted_regional, by = c("Region", "Year")) %>%
+  arrange(Year, desc(Attributable_Estimate_for_Sort)) %>%
+  select(Region, Year, 'PM2.5-Attributable DALYs (95% UI)', 'Total DALYs (95% UI)')
 
 # Loop through each year to create and save a separate flextable
+years_to_table <- unique(final_table_with_incidence$Year)
+doc <- doc %>% body_add_par("TB DALYs by GBD Level 2 Region", style = "heading 1")
+
 for (yr in years_to_table) {
-  
-  yearly_data <- final_table_with_mortality %>%
+  yearly_data <- final_table_with_incidence %>%
     filter(Year == yr) %>%
     select(-Year)
   
@@ -516,126 +374,76 @@ for (yr in years_to_table) {
     body_add_par("", style = "Normal")
 }
 
-# ESTIMATES BY SEX ############################################################
-calculate_global_summary_by_sex <- function(data, paf_variable, n_draws, years) {
-  
-  burden_filtered <- data %>%
-    filter(variable == paf_variable)
-  
-  summary_by_year_sex <- list()
-  
-  for (yr in years) {
-    set.seed(123)
-    burden_year <- burden_filtered %>% filter(year_id == yr)
-    n_strata <- nrow(burden_year)
-    
-    count_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-      nrow = n_draws, ncol = n_strata
-    )
-    count_draws[count_draws < 0] <- 0
-    
-    paf_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$paf_estimate, sd = burden_year$se_paf),
-      nrow = n_draws, ncol = n_strata
-    )
-    paf_draws[paf_draws < 0] <- 0
-    paf_draws[paf_draws > 1] <- 1
-    
-    burden_draws <- count_draws * paf_draws
-    
-    grouping_map_dt <- burden_year %>%
-      select(grouping) %>%
-      as.data.table()
-    
-    burden_draws_dt <- as.data.table(t(burden_draws))
-    burden_draws_dt[, grouping := grouping_map_dt$grouping]
-    
-    agg_burden_dt <- burden_draws_dt[, lapply(.SD, sum), by = "grouping", .SDcols = paste0("V", 1:n_draws)]
-    
-    burden_summary <- agg_burden_dt[, c("burden_estimate", "burden_lower", "burden_upper") := list(
-      rowMeans(.SD),
-      apply(.SD, 1, quantile, probs = 0.025),
-      apply(.SD, 1, quantile, probs = 0.975)
-    ), .SDcols = paste0("V", 1:n_draws)] %>%
-      select(grouping, burden_estimate, burden_lower, burden_upper)
-    
-    count_draws_dt <- as.data.table(t(count_draws))
-    count_draws_dt[, grouping := grouping_map_dt$grouping]
-    
-    agg_count_dt <- count_draws_dt[, lapply(.SD, sum), by = "grouping", .SDcols = paste0("V", 1:n_draws)]
-    
-    count_summary <- agg_count_dt[, c("count_estimate", "count_lower", "count_upper") := list(
-      rowMeans(.SD),
-      apply(.SD, 1, quantile, probs = 0.025),
-      apply(.SD, 1, quantile, probs = 0.975)
-    ), .SDcols = paste0("V", 1:n_draws)] %>%
-      select(grouping, count_estimate, count_lower, count_upper)
-    
-    yearly_summary <- burden_summary %>%
-      left_join(count_summary, by = "grouping") %>%
-      mutate(Year = yr, paf_variable = paf_variable)
-    
-    summary_by_year_sex[[as.character(yr)]] <- yearly_summary
-    
-    # Memory clean up
-    rm(count_draws, paf_draws, burden_draws, burden_year, grouping_map_dt,
-       burden_draws_dt, count_draws_dt, agg_burden_dt, agg_count_dt)
-    gc()
-  }
-  
-  return(bind_rows(summary_by_year_sex))
-}
 
-global_sex_summary_df <- calculate_global_summary_by_sex(
+# -----------------------------------------------------------------------------
+# 3. ESTIMATES BY SEX 
+# -----------------------------------------------------------------------------
+
+doc <- doc %>% body_add_par("TB DALYs by Sex (PM2.5-Attributable)", style = "heading 1")
+
+global_sex_summary_df <- calculate_grouped_summary_tidy(
   data = burden_prep, 
   paf_variable = "paf_pm",
-  n_draws = n_draws,
-  years = years
-)
+  n_draws = num_draws,
+  years = years,
+  grouping_col = "sex", 
+  filter_col = "sex",
+  filter_na_group = TRUE
+) %>% rename(Sex = sex)
 
+# Apply formatting and sorting logic
 final_sex_data <- global_sex_summary_df %>%
-  mutate(Year = as.character(Year)) %>%
-  mutate(burden_estimate = round(burden_estimate),
-         burden_lower = round(burden_lower),
-         burden_upper = round(burden_upper)) %>%
-  mutate(count_estimate = round(count_estimate),
-         count_lower = round(count_lower),
-         count_upper = round(count_upper)) %>%
-  filter(grouping %in% c("male", "female")) %>% 
+  filter(Sex %in% c("Male", "Female")) %>%
+  mutate(Year = as.character(year)) %>%
+  
+  # 1. Prepare Burden Table (with sort column)
+  mutate(Attributable_Estimate_for_Sort = burden_estimate) %>%
+  mutate(
+    burden_estimate = round(burden_estimate),
+    burden_lower = round(burden_lower),
+    burden_upper = round(burden_upper)
+  ) %>%
   mutate(
     'PM2.5-Attributable DALYs (95% UI)' = paste0(
       format(burden_estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(burden_lower, big.mark = ",", trim = TRUE),
-      ", ",
-      format(burden_upper, big.mark = ",", trim = TRUE),
-      ")"
-    ),
-    'Total DALYs (95% UI)' = paste0(
-      format(count_estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(count_lower, big.mark = ",", trim = TRUE),
-      ", ",
-      format(count_upper, big.mark = ",", trim = TRUE),
-      ")"
+      " (", format(burden_lower, big.mark = ",", trim = TRUE), ", ",
+      format(burden_upper, big.mark = ",", trim = TRUE), ")"
     )
   ) %>%
+  
+  # 2. Prepare Count Table
+  mutate(
+    count_estimate = round(count_estimate),
+    count_lower = round(count_lower),
+    count_upper = round(count_upper)
+  ) %>%
+  mutate(
+    'Total DALYs (95% UI)' = paste0(
+      format(count_estimate, big.mark = ",", trim = TRUE),
+      " (", format(count_lower, big.mark = ",", trim = TRUE), ", ",
+      format(count_upper, big.mark = ",", trim = TRUE), ")"
+    )
+  ) %>%
+  
+  # 3. Final selection and sorting
   select(
     Year,
-    Group = grouping,
+    Sex,
+    Attributable_Estimate_for_Sort,
     'PM2.5-Attributable DALYs (95% UI)',
     'Total DALYs (95% UI)'
   ) %>%
-  arrange(Year)
+  arrange(Year, desc(Attributable_Estimate_for_Sort)) %>%
+  select(-Attributable_Estimate_for_Sort)
 
-# Define the groups to iterate over
-sex_groups <- c("male", "female")
+
+# Loop through male/female to create and save a separate flextable
+sex_groups <- unique(final_sex_data$Sex)
 
 for (sx in sex_groups) {
   yearly_data_sex <- final_sex_data %>%
-    filter(Group == sx) %>%
-    select(-Group) 
+    filter(Sex == sx) %>%
+    select(-Sex) 
   
   doc <- doc %>%
     body_add_par(paste0(sx), style = "heading 3") %>%
@@ -647,179 +455,76 @@ for (sx in sex_groups) {
     body_add_par("", style = "Normal")
 }
 
-# ESTIMATES BY AGE ############################################################
 
-calculate_age_burden_summary <- function(data, paf_variable, n_draws, years) {
-  
-  burden_filtered <- data %>%
-    filter(variable == paf_variable)
-  
-  aggregated_burden_by_year_age <- list()
-  
-  for (yr in years) {
-    set.seed(123)
-    burden_year <- burden_filtered %>% filter(year_id == yr)
-    n_strata <- nrow(burden_year)
-    
-    count_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-      nrow = n_draws, ncol = n_strata
-    )
-    count_draws[count_draws < 0] <- 0
-    paf_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$paf_estimate, sd = burden_year$se_paf),
-      nrow = n_draws, ncol = n_strata
-    )
-    paf_draws[paf_draws < 0] <- 0
-    paf_draws[paf_draws > 1] <- 1
-    burden_draws <- count_draws * paf_draws
-    
-    # --- Age Group Aggregation ---
-    age_group_vector <- burden_year$age_group_name
-    
-    # Convert burden draws to data.table for efficient aggregation
-    draws_dt <- as.data.table(t(burden_draws)) 
-    
-    # Add the age group as the first column
-    draws_dt[, age_group_name := age_group_vector]
-    
-    # Aggregate draws by summing over each age group
-    agg_draws_dt <- draws_dt[, lapply(.SD, sum), by = age_group_name, .SDcols = paste0("V", 1:n_draws)]
-    
-    # Summarize draws for each age group (using data.table for efficiency)
-    age_summary <- agg_draws_dt[, c("estimate", "lower", "upper") := list(
-      rowMeans(.SD),
-      apply(.SD, 1, quantile, probs = 0.025),
-      apply(.SD, 1, quantile, probs = 0.975)
-    ), .SDcols = paste0("V", 1:n_draws)] %>%
-      select(age_group_name, estimate, lower, upper) %>%
-      mutate(year = yr)
-    
-    # Store results in the list
-    aggregated_burden_by_year_age[[as.character(yr)]] <- age_summary
-    
-    # Memory Clean-up (Crucial)
-    rm(count_draws, paf_draws, burden_draws, burden_year, draws_dt, agg_draws_dt)
-    gc()
-  }
-  
-  return(bind_rows(aggregated_burden_by_year_age))
-}
+# -----------------------------------------------------------------------------
+# 4. ESTIMATES BY AGE
+# -----------------------------------------------------------------------------
 
-calculate_age_count_summary <- function(data, n_draws, years) {
-  burden_for_count <- data %>%
-    filter(variable == "paf_pm") 
-  
-  age_count_by_year <- list()
-  
-  for (yr in years) {
-    set.seed(123)
-    burden_year <- burden_for_count %>% filter(year_id == yr)
-    n_strata <- nrow(burden_year)
-    
-    count_draws <- matrix(
-      rnorm(n_draws * n_strata, mean = burden_year$count_estimate, sd = burden_year$se_count),
-      nrow = n_draws, ncol = n_strata
-    )
-    count_draws[count_draws < 0] <- 0
-    
-    age_group_vector <- burden_year$age_group_name
-    
-    draws_dt <- as.data.table(t(count_draws))
-    draws_dt[, age_group_name := age_group_vector]
-    
-    agg_draws_dt <- draws_dt[, lapply(.SD, sum), by = age_group_name, .SDcols = paste0("V", 1:n_draws)]
-    
-    age_summary <- agg_draws_dt[, c("count_estimate", "count_lower", "count_upper") := list(
-      rowMeans(.SD),
-      apply(.SD, 1, quantile, probs = 0.025),
-      apply(.SD, 1, quantile, probs = 0.975)
-    ), .SDcols = paste0("V", 1:n_draws)] %>%
-      select(age_group_name, count_estimate, count_lower, count_upper) %>%
-      mutate(year = yr)
-    
-    age_count_by_year[[as.character(yr)]] <- age_summary
-    
-    # Memory Clean-up
-    rm(count_draws, burden_year, draws_dt, agg_draws_dt)
-    gc()
-  }
-  
-  return(bind_rows(age_count_by_year))
-}
+doc <- doc %>% body_add_par("TB DALYs by Age Group (PM2.5-Attributable)", style = "heading 1")
 
-# Run the calculation for Total PM burden
-raw_age_burden_df <- calculate_age_burden_summary(
+raw_age_summary_df <- calculate_grouped_summary_tidy(
   data = burden_prep,
   paf_variable = "paf_pm",
-  n_draws = n_draws,
-  years = years
-)
+  n_draws = num_draws,
+  years = years,
+  grouping_col = "age_group_name",
+  filter_col = "age_group_name",
+  filter_na_group = TRUE
+) %>% rename(`Age Group` = age_group_name)
 
-# Calculate the total number of deaths (TB count) by age group
-raw_age_count_df <- calculate_age_count_summary(
-  data = burden_prep,
-  n_draws = n_draws,
-  years = years
-)
+# Define the Age Order for the final table
+age_order <- c("1-5 months", "6-11 months", "12-23 months", "2-4 years", "5-9 years", 
+               "10-14 years", "15-19 years", "20-24 years", "25-29 years", "30-34 years", 
+               "35-39 years", "40-44 years", "45-49 years", "50-54 years", "55-59 years", 
+               "60-64 years", "65-69 years", "70-74 years", "75-79 years", "80-84 years", 
+               "85-89 years", "90-94 years", "95+ years")
 
-# Prepare the count table for joining and formatting
-count_formatted_age <- raw_age_count_df %>%
-  mutate(year = as.character(year)) %>%
-  mutate(count_estimate = round(count_estimate),
-         count_lower = round(count_lower),
-         count_upper = round(count_upper)) %>%
+final_age_data <- raw_age_summary_df %>%
+  mutate(Year = as.character(year)) %>%
+  
+  # 1. Prepare Burden Table (with sort column)
+  mutate(Attributable_Estimate_for_Sort = burden_estimate) %>%
+  mutate(
+    burden_estimate = round(burden_estimate),
+    burden_lower = round(burden_lower),
+    burden_upper = round(burden_upper)
+  ) %>%
+  mutate(
+    'PM2.5-Attributable DALYs (95% UI)' = paste0(
+      format(burden_estimate, big.mark = ",", trim = TRUE),
+      " (", format(burden_lower, big.mark = ",", trim = TRUE), ", ",
+      format(burden_upper, big.mark = ",", trim = TRUE), ")"
+    )
+  ) %>%
+  
+  # 2. Prepare Count Table
+  mutate(
+    count_estimate = round(count_estimate),
+    count_lower = round(count_lower),
+    count_upper = round(count_upper)
+  ) %>%
   mutate(
     'Total DALYs (95% UI)' = paste0(
       format(count_estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(count_lower, big.mark = ",", trim = TRUE),
-      ", ",
-      format(count_upper, big.mark = ",", trim = TRUE),
-      ")"
+      " (", format(count_lower, big.mark = ",", trim = TRUE), ", ",
+      format(count_upper, big.mark = ",", trim = TRUE), ")"
     )
   ) %>%
+  
+  # 3. Final selection and sorting
   select(
-    Year = year,
-    `Age Group` = age_group_name,
+    Year,
+    `Age Group`,
+    Attributable_Estimate_for_Sort,
+    'PM2.5-Attributable DALYs (95% UI)',
     'Total DALYs (95% UI)'
-  )
-
-# Final formatting and cleanup
-final_age_data <- raw_age_burden_df %>%
-  mutate(year = as.character(year)) %>%
-  mutate(estimate = round(estimate),
-         lower = round(lower),
-         upper = round(upper)) %>%
-  mutate(
-    'PM2.5-Attributable DALYs (95% UI)' = paste0(
-      format(estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(lower, big.mark = ",", trim = TRUE),
-      ", ",
-      format(upper, big.mark = ",", trim = TRUE),
-      ")"
-    )
   ) %>%
-  rename(
-    `Age Group` = age_group_name,
-    Year = year
-  ) %>%
-  left_join(count_formatted_age,
-            by = c("Year", "Age Group")) %>%
-  select(`Age Group`, Year, `PM2.5-Attributable DALYs (95% UI)`, `Total DALYs (95% UI)`) %>%
-  mutate(`Age Group` = factor(`Age Group`,
-                              levels = c("1-5 months", "6-11 months", "12 to 23 months", "2 to 4", "5 to 9", 
-                                         "10 to 14", "15 to 19", "20 to 24", "25 to 29", "30 to 34", 
-                                         "35 to 39", "40 to 44", "45 to 49", "50 to 54", "55 to 59", 
-                                         "60 to 64", "65 to 69", "70 to 74", "75 to 79", "80 to 84", 
-                                         "85 to 89", "90 to 94", "95 plus"),
-                              ordered = TRUE)) %>%
-  arrange(`Age Group`)
+  mutate(`Age Group` = factor(`Age Group`, levels = age_order, ordered = TRUE)) %>%
+  arrange(Year, `Age Group`) %>% # Sort by Year, then by Age Group order
+  select(-Attributable_Estimate_for_Sort)
 
 # Loop through each year to create and save a separate flextable
-for (yr in years_to_table) {
-  
+for (yr in years_to_analyze) {
   yearly_data_age <- final_age_data %>%
     filter(Year == yr) %>%
     select(-Year)
@@ -839,4 +544,3 @@ for (yr in years_to_table) {
 # -------------------------------
 output_file <- file.path(output_dir, "DALY_burden_tables.docx")
 print(doc, target = output_file)
-
