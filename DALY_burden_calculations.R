@@ -5,12 +5,9 @@ library(data.table)
 library(officer)
 library(flextable)
 library(here)
+library(matrixStats)
 
-# Enforce working directory to the project root
-setwd(here())
-
-pafs <- read_csv(here("pafs_to_share.csv"))
-tb_counts <- read_csv(here("tb_morbidity.csv"))
+set.seed(123)
 
 # Set output directory for all tables
 if (!dir.exists(here("tables"))) {
@@ -19,15 +16,28 @@ if (!dir.exists(here("tables"))) {
 output_dir <- here("tables")
 doc <- read_docx()
 
-# Rename PAF and TB count estimates and UIs to avoid confusion
-pafs <- pafs %>%
+# Load and Clean PAFs
+pafs <- read_csv("pafs_to_share_v3.csv") %>%
+  # Remove exact row duplicates
+  distinct() %>%
+  # Ensure only one estimate per unique strata
+  group_by(location_id, year_id, grouping, variable, type) %>%
+  filter(row_number() == 1) %>%
+  ungroup() %>%
   rename(paf_estimate = mean,
          paf_lower = lower,
          paf_upper = upper) %>%
-  # Filter PAFs to the DALY figures
   filter(type == "yld")
 
-tb_counts <- tb_counts %>%
+# Load and Clean TB Counts
+tb_counts <- read_csv("tb_counts_v2.csv") %>%
+  # Remove exact row duplicates
+  distinct() %>%
+  # Ensure only one estimate per unique strata
+  group_by(location_id, year, age_id, sex_id, measure_name) %>%
+  filter(row_number() == 1) %>%
+  ungroup() %>%
+  filter(measure_name == "DALYs (Disability-Adjusted Life Years)") %>%
   rename(count_estimate = val,
          count_lower = lower,
          count_upper = upper)
@@ -35,11 +45,12 @@ tb_counts <- tb_counts %>%
 # Create course grouping in TB counts
 tb_counts <- tb_counts %>%
   mutate(grouping = case_when(
-    age_group_id %in% c(388, 238, 34, 389) ~ "child",
-    sex_id == 1 ~ "male",
-    sex_id == 2 ~ "female",
+    age_id == 39 ~ "child",
+    age_id %in% c(24, 41, 234) & sex_id == 1 ~ "male",
+    age_id %in% c(24, 41, 234) & sex_id == 2 ~ "female",
     .default = "other"
-  ))
+  )) %>%
+  mutate(year_id = year)
 
 # Perform a merge with PAFs and TB counts using coarse grouping
 burden <- inner_join(
@@ -108,6 +119,7 @@ burden_prep <- burden %>%
   # Join with the location map
   left_join(level2_map, 
             by = "location_id")
+
 # --------------------------------------------------------------------
 
 # GLOBAL FUNCTION
@@ -124,7 +136,6 @@ calculate_grouped_summary_tidy <- function(data, paf_variable, n_draws, years, g
   group_symbols <- syms(grouping_col)
   
   for (yr in years) {
-    set.seed(123)
     burden_year <- burden_filtered %>% filter(year_id == yr)
     n_strata <- nrow(burden_year)
     
@@ -184,6 +195,11 @@ calculate_grouped_summary_tidy <- function(data, paf_variable, n_draws, years, g
         burden_estimate = mean(sum_burden),
         burden_lower = quantile(sum_burden, probs = 0.025),
         burden_upper = quantile(sum_burden, probs = 0.975),
+        
+        # Fraction Summary
+        fraction_mean = mean(sum_burden / sum_count),
+        fraction_lower = quantile(sum_burden / sum_count, 0.025, na.rm = TRUE),
+        fraction_upper = quantile(sum_burden / sum_count, 0.975, na.rm = TRUE)
       )
     
     final_results[[as.character(yr)]] <- summary_results
@@ -197,14 +213,16 @@ calculate_grouped_summary_tidy <- function(data, paf_variable, n_draws, years, g
 
 # --- GLOBAL PARAMETERS ---
 paf_variables_to_run <- c("paf_pm", "paf_hap", "paf_ambient")
-years <- c(seq(1990, 2020, by = 5), 2022)
+years <- c(seq(1990, 2020, by = 5), 2022, 2023)
 num_draws <- 1000
 
 # -----------------------------------------------------------------------------
 # 1. TOTAL BY YEAR (No Grouping Column)
 # -----------------------------------------------------------------------------
 
-doc <- doc %>% body_add_par("TB DALY Burden and Total DALYs by Year (Global)", style = "heading 1")
+burden_prep <- burden_prep %>%
+  filter(sex_name != "Both",
+         age_name != "All ages")
 
 # Calculate burden for all three PAF variables
 all_burden_summaries_list <- lapply(paf_variables_to_run, function(v) {
@@ -226,6 +244,13 @@ total_count_by_year <- all_burden_summaries %>%
   select(year, count_estimate, count_lower, count_upper) %>%
   mutate(paf_variable = "count_total") # Dummy variable name for joining
 
+variable_order <- c(
+  "Total TB DALYs",
+  "PM2.5-Attributable DALYs",
+  "Household PM2.5-Attributable DALYs",
+  "Outdoor PM2.5-Attributable DALYs"
+)
+
 burden_long <- all_burden_summaries %>%
   filter(paf_variable != "count_total") %>%
   mutate(year = as.character(year)) %>%
@@ -236,59 +261,68 @@ burden_long <- all_burden_summaries %>%
       paf_variable == "paf_ambient" ~ "Outdoor PM2.5-Attributable DALYs",
       .default = paf_variable
     ),
-    Estimate = round(burden_estimate),
-    Lower_95UI = round(burden_lower),
-    Upper_95UI = round(burden_upper)
+    Estimate = format(round(burden_estimate), big.mark = ",", trim = TRUE),
+    Lower_95UI = format(round(burden_lower), big.mark = ",", trim = TRUE),
+    Upper_95UI = format(round(burden_upper), big.mark = ",", trim = TRUE),
+    Frac_Est = round(fraction_mean * 100, 1),
+    `Estimate (95% UI)` = paste0(Estimate, " (", Lower_95UI, "-", Upper_95UI, 
+                                 ")\n", "[", Frac_Est, "% (",
+                                 round(fraction_lower * 100, 1), "-",
+                                 round(fraction_upper * 100, 1), "%)]"
+    )
   ) %>%
-  select(Year = year, Variable, Estimate, Lower_95UI, Upper_95UI)
+  select(Year = year, Variable, `Estimate (95% UI)`)
 
 count_long <- total_count_by_year %>%
   mutate(year = as.character(year)) %>%
   mutate(
-    Variable = "Total DALYs",
-    Estimate = round(count_estimate),
-    Lower_95UI = round(count_lower),
-    Upper_95UI = round(count_upper)
-  ) %>%
-  select(Year = year, Variable, Estimate, Lower_95UI, Upper_95UI)
-
-final_long_table <- bind_rows(burden_long, count_long) %>%
-  arrange(Year, Variable) %>%
-  mutate(
-    'Estimate (95% CI)' = paste0(
-      format(Estimate, big.mark = ",", trim = TRUE),
-      " (",
-      format(Lower_95UI, big.mark = ",", trim = TRUE),
-      "–", 
-      format(Upper_95UI, big.mark = ",", trim = TRUE),
-      ")"
+    Variable = "Total TB DALYs",
+    `Estimate (95% UI)` = paste0(
+      format(round(count_estimate), big.mark = ",", trim = TRUE), " (",
+      format(round(count_lower), big.mark = ",", trim = TRUE), "-",
+      format(round(count_upper), big.mark = ",", trim = TRUE), ")"
     )
   ) %>%
-  select(Year, Variable, 'Estimate (95% CI)')
+  select(Year = year, Variable, `Estimate (95% UI)`)
 
-variable_order <- c(
-  "Total DALYs",
-  "PM2.5-Attributable DALYs",
-  "Household PM2.5-Attributable DALYs",
-  "Outdoor PM2.5-Attributable DALYs"
-)
-final_long_table$Variable <- factor(final_long_table$Variable, levels = variable_order)
-final_long_table <- arrange(final_long_table, Year, Variable)
+final_long_table <- bind_rows(burden_long, count_long) %>%
+  mutate(Variable = factor(Variable, levels = variable_order)) %>%
+  arrange(Year, Variable) %>%
+  mutate(Variable = case_when(
+    Variable == "Household PM2.5-Attributable DALYs" ~ "   Household PM2.5-Attributable",
+    Variable == "Outdoor PM2.5-Attributable DALYs"   ~ "   Outdoor PM2.5-Attributable",
+    TRUE ~ as.character(Variable)
+  ))
+
+ft <- flextable(final_long_table) %>%
+  merge_v(j = "Year") %>%
+  valign(j = "Year", valign = "top", part = "body") %>%
+  
+  bold(i = ~ Variable == "Total TB DALYs", part = "body") %>%
+  fontsize(i = ~ Variable == "Total TB DALYs", part = "body") %>%
+  
+  bold(i = ~ Variable == "PM2.5-Attributable DALYs", part = "body") %>%
+  padding(i = ~ Variable == "PM2.5-Attributable DALYs", j = "Variable", padding.left = 15, part = "body") %>%
+  
+  padding(i = ~ Variable %in% c("   Household PM2.5-Attributable", "   Outdoor PM2.5-Attributable"),
+          j = "Variable", padding.left = 30, part = "body") %>%
+  bg(i = ~ Variable %in% c("   Household PM2.5-Attributable", "   Outdoor PM2.5-Attributable"),
+     bg = "#F5F5F5", part = "body") %>%
+  
+  border(i = ~ Variable == "Total TB DALYs",
+         border.top = officer::fp_border(color = "#999999", width = 1.5),
+         part = "body") %>%
+  
+  autofit() %>%
+  align(align = "left", part = "all")
 
 # doc output for Total By Year 
 doc <- doc %>%
-  body_add_par("Table 1. Global TB DALYs attributable to PM2.5 and Total DALYs by year", style = "heading 2") %>%
-  body_add_flextable(
-    flextable(final_long_table) %>%
-      merge_v(j = 1) %>%
-      valign(j = 1, valign = "top", part = "body") %>%
-      autofit() %>%
-      align(align = "left", part = "all")
-  ) %>%
+  body_add_flextable(ft) %>%
   body_add_par("", style = "Normal")
 
 # -----------------------------------------------------------------------------
-# 2. ESTIMATES BY REGION 
+# 2. ESTIMATES BY REGION
 # -----------------------------------------------------------------------------
 
 calculate_combined_regional_summary_tidy <- function(data, paf_variable, n_draws, years) {
@@ -303,7 +337,7 @@ calculate_combined_regional_summary_tidy <- function(data, paf_variable, n_draws
   ) %>% rename(level2_name = `level2_name`)) 
 }
 
-years_to_analyze <- c(1990, 1995, 2000, 2005, 2010, 2015, 2020, 2022) 
+years_to_analyze <- c(1990, 1995, 2000, 2005, 2010, 2015, 2020, 2022, 2023) 
 paf_variable_name <- "paf_pm"
 
 regional_totals_wide <- calculate_combined_regional_summary_tidy(
@@ -332,7 +366,7 @@ count_formatted_regional <- regional_totals_wide %>%
 
 # Prepare the Burden Table
 burden_formatted_regional <- regional_totals_wide %>%
-  mutate(Attributable_Estimate_for_Sort = burden_estimate) %>% # Unrounded estimate for sorting
+  mutate(Attributable_Estimate_for_Sort = fraction_mean) %>% 
   mutate(
     burden_estimate = round(burden_estimate),
     burden_lower = round(burden_lower),
@@ -346,21 +380,28 @@ burden_formatted_regional <- regional_totals_wide %>%
     )
   ) %>%
   select(Region = level2_name, Year = year, 
-         'PM2.5-Attributable DALYs (95% UI)', Attributable_Estimate_for_Sort)
+         'PM2.5-Attributable DALYs (95% UI)', Attributable_Estimate_for_Sort,
+         fraction_mean, fraction_lower, fraction_upper)
 
 
 # Join, arrange, and finalize the table
-final_table_with_incidence <- burden_formatted_regional %>%
+final_table_with_dalys <- burden_formatted_regional %>%
   left_join(count_formatted_regional, by = c("Region", "Year")) %>%
+  mutate(Fraction = 
+           paste0(
+             round(fraction_mean * 100, 1), "% (",
+             round(fraction_lower * 100, 1), "-",
+             round(fraction_upper * 100, 1), "%)"
+           )) %>%
   arrange(Year, desc(Attributable_Estimate_for_Sort)) %>%
-  select(Region, Year, 'PM2.5-Attributable DALYs (95% UI)', 'Total DALYs (95% UI)')
+  select(Region, Year, 'PM2.5-Attributable DALYs (95% UI)', 
+         'Total DALYs (95% UI)', Fraction)
 
 # Loop through each year to create and save a separate flextable
-years_to_table <- unique(final_table_with_incidence$Year)
-doc <- doc %>% body_add_par("TB DALYs by GBD Level 2 Region", style = "heading 1")
+years_to_table <- unique(final_table_with_dalys$Year)
 
 for (yr in years_to_table) {
-  yearly_data <- final_table_with_incidence %>%
+  yearly_data <- final_table_with_dalys %>%
     filter(Year == yr) %>%
     select(-Year)
   
@@ -368,8 +409,13 @@ for (yr in years_to_table) {
     body_add_par(paste0("Year: ", yr), style = "heading 3") %>%
     body_add_flextable(
       flextable(yearly_data) %>%
-        autofit() %>%
-        align(align = "left", part = "all")
+        set_table_properties(layout = "fixed") %>%
+        width(j = "Region", width = 1.5) %>%
+        width(j = "PM2.5-Attributable DALYs (95% UI)", width = 1.7) %>%
+        width(j = "Total DALYs (95% UI)", width = 1.6) %>%
+        width(j = "Fraction", width = 1.7) %>% 
+        align(align = "left", part = "all") %>%
+        fontsize(size = 9, part = "all")
     ) %>%
     body_add_par("", style = "Normal")
 }
@@ -379,63 +425,47 @@ for (yr in years_to_table) {
 # 3. ESTIMATES BY SEX 
 # -----------------------------------------------------------------------------
 
-doc <- doc %>% body_add_par("TB DALYs by Sex (PM2.5-Attributable)", style = "heading 1")
-
 global_sex_summary_df <- calculate_grouped_summary_tidy(
   data = burden_prep, 
   paf_variable = "paf_pm",
   n_draws = num_draws,
   years = years,
-  grouping_col = "sex", 
-  filter_col = "sex",
+  grouping_col = "sex_name", 
+  filter_col = "sex_name",
   filter_na_group = TRUE
-) %>% rename(Sex = sex)
+) %>% rename(Sex = sex_name)
 
 # Apply formatting and sorting logic
 final_sex_data <- global_sex_summary_df %>%
   filter(Sex %in% c("Male", "Female")) %>%
   mutate(Year = as.character(year)) %>%
-  
-  # 1. Prepare Burden Table (with sort column)
-  mutate(Attributable_Estimate_for_Sort = burden_estimate) %>%
   mutate(
-    burden_estimate = round(burden_estimate),
-    burden_lower = round(burden_lower),
-    burden_upper = round(burden_upper)
-  ) %>%
-  mutate(
+    burden_estimate_round = round(burden_estimate),
+    count_estimate_round = round(count_estimate),
     'PM2.5-Attributable DALYs (95% UI)' = paste0(
-      format(burden_estimate, big.mark = ",", trim = TRUE),
-      " (", format(burden_lower, big.mark = ",", trim = TRUE), ", ",
-      format(burden_upper, big.mark = ",", trim = TRUE), ")"
-    )
-  ) %>%
-  
-  # 2. Prepare Count Table
-  mutate(
-    count_estimate = round(count_estimate),
-    count_lower = round(count_lower),
-    count_upper = round(count_upper)
-  ) %>%
-  mutate(
+      format(burden_estimate_round, big.mark = ",", trim = TRUE),
+      " (", format(round(burden_lower), big.mark = ",", trim = TRUE), "-",
+      format(round(burden_upper), big.mark = ",", trim = TRUE), ")"
+    ),
     'Total DALYs (95% UI)' = paste0(
-      format(count_estimate, big.mark = ",", trim = TRUE),
-      " (", format(count_lower, big.mark = ",", trim = TRUE), ", ",
-      format(count_upper, big.mark = ",", trim = TRUE), ")"
-    )
-  ) %>%
-  
+      format(count_estimate_round, big.mark = ",", trim = TRUE),
+      " (", format(round(count_lower), big.mark = ",", trim = TRUE), "-",
+      format(round(count_upper), big.mark = ",", trim = TRUE), ")"),
+    Fraction = 
+             paste0(
+               round(fraction_mean * 100, 1), "% (",
+               round(fraction_lower * 100, 1), "-",
+               round(fraction_upper * 100, 1), "%)"
+             )) %>%
   # 3. Final selection and sorting
   select(
     Year,
     Sex,
-    Attributable_Estimate_for_Sort,
     'PM2.5-Attributable DALYs (95% UI)',
-    'Total DALYs (95% UI)'
+    'Total DALYs (95% UI)',
+    Fraction
   ) %>%
-  arrange(Year, desc(Attributable_Estimate_for_Sort)) %>%
-  select(-Attributable_Estimate_for_Sort)
-
+  arrange(Year, Sex) 
 
 # Loop through male/female to create and save a separate flextable
 sex_groups <- unique(final_sex_data$Sex)
@@ -446,82 +476,68 @@ for (sx in sex_groups) {
     select(-Sex) 
   
   doc <- doc %>%
-    body_add_par(paste0(sx), style = "heading 3") %>%
+    body_add_par(paste0("Sex: ", sx), style = "heading 3") %>%
     body_add_flextable(
       flextable(yearly_data_sex) %>%
-        autofit() %>%
-        align(align = "left", part = "all")
+        set_table_properties(layout = "fixed") %>%
+        # Proportional widths adding up to 6.5
+        width(j = 1, width = 1.2) %>% 
+        width(j = 2, width = 1.8) %>%
+        width(j = 3, width = 1.8) %>% 
+        width(j = 4, width = 1.7) %>% 
+        fontsize(size = 9, part = "all")
     ) %>%
     body_add_par("", style = "Normal")
 }
 
-
 # -----------------------------------------------------------------------------
 # 4. ESTIMATES BY AGE
 # -----------------------------------------------------------------------------
-
-doc <- doc %>% body_add_par("TB DALYs by Age Group (PM2.5-Attributable)", style = "heading 1")
 
 raw_age_summary_df <- calculate_grouped_summary_tidy(
   data = burden_prep,
   paf_variable = "paf_pm",
   n_draws = num_draws,
   years = years,
-  grouping_col = "age_group_name",
-  filter_col = "age_group_name",
+  grouping_col = "age_name",
+  filter_col = "age_name",
   filter_na_group = TRUE
-) %>% rename(`Age Group` = age_group_name)
+) %>% rename(`Age Group` = age_name)
 
 # Define the Age Order for the final table
-age_order <- c("1-5 months", "6-11 months", "12-23 months", "2-4 years", "5-9 years", 
-               "10-14 years", "15-19 years", "20-24 years", "25-29 years", "30-34 years", 
-               "35-39 years", "40-44 years", "45-49 years", "50-54 years", "55-59 years", 
-               "60-64 years", "65-69 years", "70-74 years", "75-79 years", "80-84 years", 
-               "85-89 years", "90-94 years", "95+ years")
+age_order <- c("0-14 years", "15-49 years", "50-74 years", "75+ years")
 
 final_age_data <- raw_age_summary_df %>%
   mutate(Year = as.character(year)) %>%
-  
-  # 1. Prepare Burden Table (with sort column)
-  mutate(Attributable_Estimate_for_Sort = burden_estimate) %>%
   mutate(
-    burden_estimate = round(burden_estimate),
-    burden_lower = round(burden_lower),
-    burden_upper = round(burden_upper)
-  ) %>%
-  mutate(
+    burden_estimate_round = round(burden_estimate),
+    count_estimate_round = round(count_estimate),
     'PM2.5-Attributable DALYs (95% UI)' = paste0(
-      format(burden_estimate, big.mark = ",", trim = TRUE),
-      " (", format(burden_lower, big.mark = ",", trim = TRUE), ", ",
-      format(burden_upper, big.mark = ",", trim = TRUE), ")"
-    )
-  ) %>%
-  
-  # 2. Prepare Count Table
-  mutate(
-    count_estimate = round(count_estimate),
-    count_lower = round(count_lower),
-    count_upper = round(count_upper)
-  ) %>%
-  mutate(
+      format(burden_estimate_round, big.mark = ",", trim = TRUE),
+      " (", format(round(burden_lower), big.mark = ",", trim = TRUE), "-",
+      format(round(burden_upper), big.mark = ",", trim = TRUE), ")"
+    ),
     'Total DALYs (95% UI)' = paste0(
-      format(count_estimate, big.mark = ",", trim = TRUE),
-      " (", format(count_lower, big.mark = ",", trim = TRUE), ", ",
-      format(count_upper, big.mark = ",", trim = TRUE), ")"
-    )
+      format(count_estimate_round, big.mark = ",", trim = TRUE),
+      " (", format(round(count_lower), big.mark = ",", trim = TRUE), "-",
+      format(round(count_upper), big.mark = ",", trim = TRUE), ")"
+    ),
+    Fraction = 
+      paste0(
+        round(fraction_mean * 100, 1), "% (",
+        round(fraction_lower * 100, 1), "-",
+        round(fraction_upper * 100, 1), "%)"
+      )
   ) %>%
-  
-  # 3. Final selection and sorting
+  mutate(`Age Group` = factor(`Age Group`, levels = age_order, ordered = TRUE)) %>%
   select(
     Year,
     `Age Group`,
-    Attributable_Estimate_for_Sort,
     'PM2.5-Attributable DALYs (95% UI)',
-    'Total DALYs (95% UI)'
+    'Total DALYs (95% UI)',
+    Fraction
   ) %>%
-  mutate(`Age Group` = factor(`Age Group`, levels = age_order, ordered = TRUE)) %>%
-  arrange(Year, `Age Group`) %>% # Sort by Year, then by Age Group order
-  select(-Attributable_Estimate_for_Sort)
+  arrange(Year, `Age Group`) 
 
 # Loop through each year to create and save a separate flextable
 for (yr in years_to_analyze) {
@@ -533,8 +549,13 @@ for (yr in years_to_analyze) {
     body_add_par(paste0("Year: ", yr), style = "heading 3") %>%
     body_add_flextable(
       flextable(yearly_data_age) %>%
-        autofit() %>%
-        align(align = "left", part = "all")
+        set_table_properties(layout = "fixed") %>%
+        # Proportional widths adding up to 6.5
+        width(j = 1, width = 1.2) %>% 
+        width(j = 2, width = 1.8) %>% 
+        width(j = 3, width = 1.8) %>% 
+        width(j = 4, width = 1.7) %>% 
+        fontsize(size = 9, part = "all") 
     ) %>%
     body_add_par("", style = "Normal")
 }
@@ -542,5 +563,5 @@ for (yr in years_to_analyze) {
 # -------------------------------
 # Save Word document with tables
 # -------------------------------
-output_file <- file.path(output_dir, "DALY_burden_tables.docx")
+output_file <- file.path(output_dir, "daly_burden_tables.docx")
 print(doc, target = output_file)
