@@ -211,8 +211,39 @@ calculate_grouped_summary_tidy <- function(data, paf_variable, n_draws, years, g
   return(bind_rows(final_results))
 }
 
+# Comparison function to get both HAP and Ambient data for a specific grouping
+get_paf_comparison <- function(data, grouping_col, filter_col, years_to_run) {
+  
+  # Run for HAP
+  hap_data <- calculate_grouped_summary_tidy(
+    data = data, paf_variable = "paf_hap", n_draws = 1000, 
+    years = years_to_run, grouping_col = grouping_col, 
+    filter_col = filter_col, filter_na_group = TRUE
+  ) %>% mutate(risk = "HAP")
+  
+  # Run for Ambient
+  oap_data <- calculate_grouped_summary_tidy(
+    data = data, paf_variable = "paf_ambient", n_draws = 1000, 
+    years = years_to_run, grouping_col = grouping_col, 
+    filter_col = filter_col, filter_na_group = TRUE
+  ) %>% mutate(risk = "Ambient")
+  
+  # Combine and pivot
+  comparison_df <- bind_rows(hap_data, oap_data) %>%
+    mutate(
+      formatted_frac = paste0(
+        round(fraction_mean * 100, 1), "% (",
+        round(fraction_lower * 100, 1), "-",
+        round(fraction_upper * 100, 1), "%)"
+      )
+    )
+  
+  return(comparison_df)
+}
+
 # --- GLOBAL PARAMETERS ---
 paf_variables_to_run <- c("paf_pm", "paf_hap", "paf_ambient")
+paf_subcomponents <- c("paf_hap", "paf_ambient")
 years <- c(seq(1990, 2020, by = 5), 2022, 2023)
 num_draws <- 1000
 
@@ -335,14 +366,11 @@ calculate_combined_regional_summary_tidy <- function(data, paf_variable, n_draws
   ) %>% rename(level2_name = `level2_name`)) 
 }
 
-years_to_analyze <- c(1990, 1995, 2000, 2005, 2010, 2015, 2020, 2022, 2023) 
-paf_variable_name <- "paf_pm"
-
 regional_totals_wide <- calculate_combined_regional_summary_tidy(
   data = burden_prep,
-  paf_variable = paf_variable_name,
+  paf_variable = "paf_pm",
   n_draws = num_draws,
-  years = years_to_analyze
+  years = years
 )
 
 # Prepare the Count Table
@@ -417,6 +445,34 @@ for (yr in years_to_table) {
     body_add_par("", style = "Normal")
 }
 
+# Calculate Regional Comparison for 2023
+reg_comp_raw <- get_paf_comparison(burden_prep, 
+                                   c("level2_id", "level2_name"), 
+                                   "level2_id", 
+                                   2023)
+
+reg_comp_wide <- reg_comp_raw %>%
+  select(Region = level2_name, risk, formatted_frac, fraction_mean) %>%
+  pivot_wider(names_from = risk, values_from = c(formatted_frac, fraction_mean))
+
+ft_reg_compare <- flextable(reg_comp_wide, 
+                            col_keys = c("Region", 
+                                         "formatted_frac_HAP", 
+                                         "formatted_frac_Ambient")) %>%
+  set_header_labels(
+    formatted_frac_HAP = "Household PM2.5-Attributed %",
+    formatted_frac_Ambient = "Outdoor PM2.5-Attributed %"
+  ) %>%
+  # Highlight the cell with the higher burden
+  bg(i = ~ fraction_mean_HAP > fraction_mean_Ambient, j = "formatted_frac_HAP", bg = "#E1F5FE") %>%
+  bg(i = ~ fraction_mean_Ambient > fraction_mean_HAP, j = "formatted_frac_Ambient", bg = "#FFF9C4") %>%
+  autofit() %>%
+  add_footer_lines("Blue highlight: HAP dominance | Yellow highlight: Ambient dominance")
+
+# Add to your existing 'doc' object
+doc <- doc %>% 
+  body_add_par("Comparison of HAP vs Ambient TB Burden by Region (2023)", style = "heading 2") %>%
+  body_add_flextable(ft_reg_compare)
 
 # -----------------------------------------------------------------------------
 # 3. ESTIMATES BY SEX 
@@ -487,7 +543,34 @@ for (sx in sex_groups) {
     body_add_par("", style = "Normal")
 }
 
+# Calculate Sex Comparison for 2023
+sex_comp_raw <- get_paf_comparison(burden_prep, 
+                                   "sex_name",
+                                   "sex_name",
+                                   2023)
 
+sex_comp_wide <- sex_comp_raw %>%
+  select(Sex = sex_name, risk, formatted_frac, fraction_mean) %>%
+  pivot_wider(names_from = risk, values_from = c(formatted_frac, fraction_mean))
+
+ft_sex_compare <- flextable(sex_comp_wide, 
+                            col_keys = c("Sex", 
+                                         "formatted_frac_HAP", 
+                                         "formatted_frac_Ambient")) %>%
+  set_header_labels(
+    formatted_frac_HAP = "Household PM2.5-Attributed %",
+    formatted_frac_Ambient = "Outdoor PM2.5 Attributed %"
+  ) %>%
+  # Highlight the cell with the higher burden
+  bg(i = ~ fraction_mean_HAP > fraction_mean_Ambient, j = "formatted_frac_HAP", bg = "#E1F5FE") %>%
+  bg(i = ~ fraction_mean_Ambient > fraction_mean_HAP, j = "formatted_frac_Ambient", bg = "#FFF9C4") %>%
+  autofit() %>%
+  add_footer_lines("Blue highlight: HAP dominance | Yellow highlight: Ambient dominance")
+
+# Add to your existing 'doc' object
+doc <- doc %>% 
+  body_add_par("Comparison of HAP vs Ambient TB Burden by Sex (2023)", style = "heading 2") %>%
+  body_add_flextable(ft_sex_compare)
 # -----------------------------------------------------------------------------
 # 4. ESTIMATES BY AGE
 # -----------------------------------------------------------------------------
@@ -538,7 +621,7 @@ final_age_data <- raw_age_summary_df %>%
   arrange(Year, `Age Group`) 
 
 # Loop through each year to create and save a separate flextable
-for (yr in years_to_analyze) {
+for (yr in years) {
   yearly_data_age <- final_age_data %>%
     filter(Year == yr) %>%
     select(-Year)
@@ -557,6 +640,47 @@ for (yr in years_to_analyze) {
     ) %>%
     body_add_par("", style = "Normal")
 }
+
+age_comp_raw <- get_paf_comparison(burden_prep, "age_name", "age_name", 2023)
+
+ft_age_compare <- age_comp_raw %>%
+  select(`Age Group` = age_name, risk, formatted_frac) %>%
+  pivot_wider(names_from = risk, values_from = formatted_frac) %>%
+  flextable() %>%
+  autofit()
+
+doc <- doc %>% 
+  body_add_par("Comparison of HAP vs Ambient TB Burden by Age Group (2023)", style = "heading 2") %>%
+  body_add_flextable(ft_age_compare)
+
+# Calculate Age Group Comparison for 2023
+age_comp_raw <- get_paf_comparison(burden_prep, 
+                                   "age_name",
+                                   "age_name",
+                                   2023)
+
+age_comp_wide <- age_comp_raw %>%
+  select(`Age Group` = age_name, risk, formatted_frac, fraction_mean) %>%
+  pivot_wider(names_from = risk, values_from = c(formatted_frac, fraction_mean))
+
+ft_age_compare <- flextable(age_comp_wide, 
+                            col_keys = c("Age Group", 
+                                         "formatted_frac_HAP", 
+                                         "formatted_frac_Ambient")) %>%
+  set_header_labels(
+    formatted_frac_HAP = "Household PM2.5-Attributed %",
+    formatted_frac_Ambient = "Outdoor PM2.5 Attributed %"
+  ) %>%
+  # Highlight the cell with the higher burden
+  bg(i = ~ fraction_mean_HAP > fraction_mean_Ambient, j = "formatted_frac_HAP", bg = "#E1F5FE") %>%
+  bg(i = ~ fraction_mean_Ambient > fraction_mean_HAP, j = "formatted_frac_Ambient", bg = "#FFF9C4") %>%
+  autofit() %>%
+  add_footer_lines("Blue highlight: HAP dominance | Yellow highlight: Ambient dominance")
+
+# Add to your existing 'doc' object
+doc <- doc %>% 
+  body_add_par("Comparison of HAP vs Ambient TB Burden by Age Group (2023)", style = "heading 2") %>%
+  body_add_flextable(ft_age_compare)
 
 # -------------------------------
 # Save Word document with tables
